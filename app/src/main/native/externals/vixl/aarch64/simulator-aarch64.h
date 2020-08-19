@@ -24,10 +24,10 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifndef VIXL_AARCH64_SIMULATOR_AARCH64_H_
-#define VIXL_AARCH64_SIMULATOR_AARCH64_H_
+#pragma once
 
 #include <vector>
+#include <functional>
 
 #include "../globals-vixl.h"
 #include "../utils-vixl.h"
@@ -39,8 +39,6 @@
 #include "instructions-aarch64.h"
 #include "instrument-aarch64.h"
 #include "simulator-constants-aarch64.h"
-
-#ifdef VIXL_INCLUDE_SIMULATOR_AARCH64
 
 // These are only used for the ABI feature, and depend on checks performed for
 // it.
@@ -56,10 +54,16 @@ namespace vixl {
 namespace aarch64 {
 
 // Representation of memory, with typed getters and setters for access.
-class Memory {
- public:
-  template <typename T>
-  static T AddressUntag(T address) {
+namespace MemoryAccess {
+
+  void ReadBlock(const void* src_addr, void *dest_buffer, const std::size_t size);
+  void WriteBlock(void *dest_addr, const void *src_buffer, std::size_t size);
+
+  void SetReadCallback(std::function<void(void *,const void*, size_t)> callback);
+  void SetWriteCallback(std::function<void(void *,const void*, size_t)> callback);
+
+    template <typename T>
+  T AddressUntag(T address) {
     // Cast the address using a C-style cast. A reinterpret_cast would be
     // appropriate, but it can't cast one integral type to another.
     uint64_t bits = (uint64_t)address;
@@ -67,23 +71,23 @@ class Memory {
   }
 
   template <typename T, typename A>
-  static T Read(A address) {
+  T Read(A address) {
     T value;
     address = AddressUntag(address);
     VIXL_ASSERT((sizeof(value) == 1) || (sizeof(value) == 2) ||
                 (sizeof(value) == 4) || (sizeof(value) == 8) ||
                 (sizeof(value) == 16));
-    memcpy(&value, reinterpret_cast<const char*>(address), sizeof(value));
+    ReadBlock(reinterpret_cast<const char*>(address), &value, sizeof(value));
     return value;
   }
 
   template <typename T, typename A>
-  static void Write(A address, T value) {
+  void Write(A address, T value) {
     address = AddressUntag(address);
     VIXL_ASSERT((sizeof(value) == 1) || (sizeof(value) == 2) ||
                 (sizeof(value) == 4) || (sizeof(value) == 8) ||
                 (sizeof(value) == 16));
-    memcpy(reinterpret_cast<char*>(address), &value, sizeof(value));
+    WriteBlock(reinterpret_cast<char*>(address), &value, sizeof(value));
   }
 };
 
@@ -144,8 +148,12 @@ class SimRegisterBase {
 
   void NotifyRegisterLogged() { written_since_last_log_ = false; }
 
+  void Bind(void *value) {
+      value_ = static_cast<uint8_t *>(value);
+  }
+
  protected:
-  uint8_t value_[kSizeInBytes];
+  uint8_t *value_;
 
   // Helpers to aid with register tracing.
   bool written_since_last_log_;
@@ -316,16 +324,16 @@ class LogicVRegister {
   void ReadUintFromMem(VectorFormat vform, int index, uint64_t addr) const {
     switch (LaneSizeInBitsFromFormat(vform)) {
       case 8:
-        register_.Insert(index, Memory::Read<uint8_t>(addr));
+        register_.Insert(index, MemoryAccess::Read<uint8_t>(addr));
         break;
       case 16:
-        register_.Insert(index, Memory::Read<uint16_t>(addr));
+        register_.Insert(index, MemoryAccess::Read<uint16_t>(addr));
         break;
       case 32:
-        register_.Insert(index, Memory::Read<uint32_t>(addr));
+        register_.Insert(index, MemoryAccess::Read<uint32_t>(addr));
         break;
       case 64:
-        register_.Insert(index, Memory::Read<uint64_t>(addr));
+        register_.Insert(index, MemoryAccess::Read<uint64_t>(addr));
         break;
       default:
         VIXL_UNREACHABLE();
@@ -337,16 +345,16 @@ class LogicVRegister {
     uint64_t value = Uint(vform, index);
     switch (LaneSizeInBitsFromFormat(vform)) {
       case 8:
-        Memory::Write(addr, static_cast<uint8_t>(value));
+        MemoryAccess::Write(addr, static_cast<uint8_t>(value));
         break;
       case 16:
-        Memory::Write(addr, static_cast<uint16_t>(value));
+        MemoryAccess::Write(addr, static_cast<uint16_t>(value));
         break;
       case 32:
-        Memory::Write(addr, static_cast<uint32_t>(value));
+        MemoryAccess::Write(addr, static_cast<uint32_t>(value));
         break;
       case 64:
-        Memory::Write(addr, value);
+        MemoryAccess::Write(addr, value);
         break;
     }
   }
@@ -499,26 +507,26 @@ class SimSystemRegister {
  public:
   // The default constructor represents a register which has no writable bits.
   // It is not possible to set its value to anything other than 0.
-  SimSystemRegister() : value_(0), write_ignore_mask_(0xffffffff) {}
+  SimSystemRegister() : write_ignore_mask_(0xffffffff) {}
 
-  uint32_t GetRawValue() const { return value_; }
+  uint32_t GetRawValue() const { return *value_; }
   VIXL_DEPRECATED("GetRawValue", uint32_t RawValue() const) {
     return GetRawValue();
   }
 
   void SetRawValue(uint32_t new_value) {
-    value_ = (value_ & write_ignore_mask_) | (new_value & ~write_ignore_mask_);
+    *value_ = (*value_ & write_ignore_mask_) | (new_value & ~write_ignore_mask_);
   }
 
   uint32_t ExtractBits(int msb, int lsb) const {
-    return ExtractUnsignedBitfield32(msb, lsb, value_);
+    return ExtractUnsignedBitfield32(msb, lsb, *value_);
   }
   VIXL_DEPRECATED("ExtractBits", uint32_t Bits(int msb, int lsb) const) {
     return ExtractBits(msb, lsb);
   }
 
   int32_t ExtractSignedBits(int msb, int lsb) const {
-    return ExtractSignedBitfield32(msb, lsb, value_);
+    return ExtractSignedBitfield32(msb, lsb, *value_);
   }
   VIXL_DEPRECATED("ExtractSignedBits",
                   int32_t SignedBits(int msb, int lsb) const) {
@@ -529,6 +537,10 @@ class SimSystemRegister {
 
   // Default system register values.
   static SimSystemRegister DefaultValueFor(SystemRegister id);
+
+  void Bind(void *value) {
+      value_ = static_cast<uint32_t *>(value);
+  }
 
 #define DEFINE_GETTER(Name, HighBit, LowBit, Func)                            \
   uint32_t Get##Name() const { return this->Func(HighBit, LowBit); }          \
@@ -546,10 +558,10 @@ class SimSystemRegister {
   // Most system registers only implement a few of the bits in the word. Other
   // bits are "read-as-zero, write-ignored". The write_ignore_mask argument
   // describes the bits which are not modifiable.
-  SimSystemRegister(uint32_t value, uint32_t write_ignore_mask)
-      : value_(value), write_ignore_mask_(write_ignore_mask) {}
+  SimSystemRegister(uint32_t write_ignore_mask)
+      : write_ignore_mask_(write_ignore_mask) {}
 
-  uint32_t value_;
+  uint32_t *value_;
   uint32_t write_ignore_mask_;
 };
 
@@ -623,7 +635,7 @@ class SimExclusiveGlobalMonitor {
 
 class Simulator : public DecoderVisitor {
  public:
-  explicit Simulator(Decoder* decoder, FILE* stream = stdout);
+  Simulator(Decoder* decoder);
   ~Simulator();
 
   void ResetState();
@@ -631,6 +643,7 @@ class Simulator : public DecoderVisitor {
   // Run the simulator.
   virtual void Run();
   void RunFrom(const Instruction* first);
+  void RunInstr(const Instruction* once, uint64_t real_pc);
 
 
 #if defined(VIXL_HAS_ABI_SUPPORT) && __cplusplus >= 201103L && \
@@ -701,15 +714,24 @@ class Simulator : public DecoderVisitor {
   void WritePc(const Instruction* new_pc,
                BranchLogMode log_mode = LogBranches) {
     if (log_mode == LogBranches) LogTakenBranch(new_pc);
-    pc_ = Memory::AddressUntag(new_pc);
+    pc_ = MemoryAccess::AddressUntag(new_pc);
     pc_modified_ = true;
   }
+
+  void WriteInstrOnce(const Instruction* new_pc, uint64_t real_pc) {
+    pc_ = MemoryAccess::AddressUntag(new_pc);
+    pc_modified_ = false;
+    real_pc_ = real_pc;
+  }
+
   VIXL_DEPRECATED("WritePc", void set_pc(const Instruction* new_pc)) {
     return WritePc(new_pc);
   }
 
   void IncrementPc() {
-    if (!pc_modified_) {
+    if (real_pc_) {
+      pc_ += 4;
+    } else if (!pc_modified_) {
       pc_ = pc_->GetNextInstruction();
     }
   }
@@ -730,7 +752,6 @@ class Simulator : public DecoderVisitor {
 
   void ExecuteInstruction() {
     // The program counter should always be aligned.
-    VIXL_ASSERT(IsWordAligned(pc_));
     pc_modified_ = false;
 
     // On guarded pages, if BType is not zero, take an exception on any
@@ -755,7 +776,7 @@ class Simulator : public DecoderVisitor {
     // that the ordering above is preserved.
     decoder_->Decode(pc_);
     IncrementPc();
-    LogAllWrittenRegisters();
+    //LogAllWrittenRegisters();
     UpdateBType();
 
     VIXL_CHECK(cpu_features_auditor_.InstructionIsAvailable());
@@ -918,6 +939,22 @@ class Simulator : public DecoderVisitor {
                                RegLogMode log_mode = LogRegWrites,
                                Reg31Mode r31mode = Reg31IsZeroRegister)) {
     WriteRegister<T>(code, value, log_mode, r31mode);
+  }
+
+  void BindXRegister(int code, void *value) {
+      registers_[code].Bind(value);
+  }
+
+  void BindVRegister(int code, void *value) {
+      vregisters_[code].Bind(value);
+  }
+
+  void BindNZCV(void *value) {
+      nzcv_.Bind(value);
+  }
+
+  void BindFPCR(void *value) {
+      fpcr_.Bind(value);
   }
 
   // Common specialized accessors for the set_reg() template.
@@ -1289,7 +1326,7 @@ class Simulator : public DecoderVisitor {
       return ReadCPURegister<T>(operand.GetCPURegister());
     } else {
       VIXL_ASSERT(operand.IsMemOperand());
-      return Memory::Read<T>(ComputeMemOperandAddress(operand.GetMemOperand()));
+      return MemoryAccess::Read<T>(ComputeMemOperandAddress(operand.GetMemOperand()));
     }
   }
 
@@ -1310,7 +1347,7 @@ class Simulator : public DecoderVisitor {
       WriteCPURegister(operand.GetCPURegister(), raw, log_mode);
     } else {
       VIXL_ASSERT(operand.IsMemOperand());
-      Memory::Write(ComputeMemOperandAddress(operand.GetMemOperand()), value);
+      MemoryAccess::Write(ComputeMemOperandAddress(operand.GetMemOperand()), value);
     }
   }
 
@@ -1543,28 +1580,28 @@ class Simulator : public DecoderVisitor {
   void LogRead(uintptr_t address,
                unsigned reg_code,
                PrintRegisterFormat format) {
-    if (GetTraceParameters() & LOG_REGS) PrintRead(address, reg_code, format);
+//    if (GetTraceParameters() & LOG_REGS) PrintRead(address, reg_code, format);
   }
   void LogWrite(uintptr_t address,
                 unsigned reg_code,
                 PrintRegisterFormat format) {
-    if (GetTraceParameters() & LOG_WRITE) PrintWrite(address, reg_code, format);
+//    if (GetTraceParameters() & LOG_WRITE) PrintWrite(address, reg_code, format);
   }
   void LogVRead(uintptr_t address,
                 unsigned reg_code,
                 PrintRegisterFormat format,
                 unsigned lane = 0) {
-    if (GetTraceParameters() & LOG_VREGS) {
-      PrintVRead(address, reg_code, format, lane);
-    }
+//    if (GetTraceParameters() & LOG_VREGS) {
+//      PrintVRead(address, reg_code, format, lane);
+//    }
   }
   void LogVWrite(uintptr_t address,
                  unsigned reg_code,
                  PrintRegisterFormat format,
                  unsigned lane = 0) {
-    if (GetTraceParameters() & LOG_WRITE) {
-      PrintVWrite(address, reg_code, format, lane);
-    }
+//    if (GetTraceParameters() & LOG_WRITE) {
+//      PrintVWrite(address, reg_code, format, lane);
+//    }
   }
 
   // Helper functions for register tracing.
@@ -2924,6 +2961,12 @@ class Simulator : public DecoderVisitor {
   NEON_FPPAIRWISE_LIST(DECLARE_NEON_FP_PAIR_OP)
 #undef DECLARE_NEON_FP_PAIR_OP
 
+  enum FrintMode {
+    kFrintToInteger = 0,
+    kFrintToInt32 = 32,
+    kFrintToInt64 = 64
+  };
+
   template <typename T>
   LogicVRegister frecps(VectorFormat vform,
                         LogicVRegister dst,
@@ -3028,11 +3071,13 @@ class Simulator : public DecoderVisitor {
                       LogicVRegister dst,
                       const LogicVRegister& src1,
                       const LogicVRegister& src2);
+
   LogicVRegister frint(VectorFormat vform,
                        LogicVRegister dst,
                        const LogicVRegister& src,
                        FPRounding rounding_mode,
-                       bool inexact_exception = false);
+                       bool inexact_exception = false,
+                       FrintMode frint_mode = kFrintToInteger);
   LogicVRegister fcvts(VectorFormat vform,
                        LogicVRegister dst,
                        const LogicVRegister& src,
@@ -3120,6 +3165,8 @@ class Simulator : public DecoderVisitor {
 
   void FPCompare(double val0, double val1, FPTrapFlags trap);
   double FPRoundInt(double value, FPRounding round_mode);
+  double FPRoundInt(double value, FPRounding round_mode, FrintMode frint_mode);
+  double FPRoundIntCommon(double value, FPRounding round_mode);
   double recip_sqrt_estimate(double a);
   double recip_estimate(double a);
   double FPRecipSqrtEstimate(double a);
@@ -3199,10 +3246,7 @@ class Simulator : public DecoderVisitor {
   void DoSaveCPUFeatures(const Instruction* instr);
   void DoRestoreCPUFeatures(const Instruction* instr);
 
-// Simulate a runtime call.
-#ifndef VIXL_HAS_SIMULATED_RUNTIME_CALL_SUPPORT
-  VIXL_NO_RETURN_IN_DEBUG_MODE
-#endif
+  // Simulate a runtime call.
   void DoRuntimeCall(const Instruction* instr);
 
   // Processor state ---------------------------------------
@@ -3244,9 +3288,8 @@ class Simulator : public DecoderVisitor {
     VIXL_ASSERT(ReadFpcr().GetFZ() == 0);
     // Ties-to-even rounding only.
     VIXL_ASSERT(ReadFpcr().GetRMode() == FPTieEven);
-
-    // The simulator does not support half-precision operations so
-    // GetFpcr().AHP() is irrelevant, and is not checked here.
+    // No alternative half-precision support.
+    VIXL_ASSERT(ReadFpcr().GetAHP() == 0);
   }
 
   static int CalcNFlag(uint64_t result, unsigned reg_size) {
@@ -3269,6 +3312,7 @@ class Simulator : public DecoderVisitor {
   // automatically incremented.
   bool pc_modified_;
   const Instruction* pc_;
+  uint64_t real_pc_{0};
 
   // Branch type register, used for branch target identification.
   BType btype_;
@@ -3376,7 +3420,3 @@ struct Simulator::emulated_make_index_sequence_helper<0, I...>
 
 }  // namespace aarch64
 }  // namespace vixl
-
-#endif  // VIXL_INCLUDE_SIMULATOR_AARCH64
-
-#endif  // VIXL_AARCH64_SIMULATOR_AARCH64_H_

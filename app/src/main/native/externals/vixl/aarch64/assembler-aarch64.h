@@ -2328,6 +2328,18 @@ class Assembler : public vixl::internal::AssemblerBase {
   // FP round to integer, towards zero.
   void frintz(const VRegister& vd, const VRegister& vn);
 
+  // FP round to 32-bit integer, exact, implicit rounding [Armv8.5].
+  void frint32x(const VRegister& vd, const VRegister& vn);
+
+  // FP round to 32-bit integer, towards zero [Armv8.5].
+  void frint32z(const VRegister& vd, const VRegister& vn);
+
+  // FP round to 64-bit integer, exact, implicit rounding [Armv8.5].
+  void frint64x(const VRegister& vd, const VRegister& vn);
+
+  // FP round to 64-bit integer, towards zero [Armv8.5].
+  void frint64z(const VRegister& vd, const VRegister& vn);
+
   void FPCompareMacro(const VRegister& vn, double value, FPTrapFlags trap);
 
   void FPCompareMacro(const VRegister& vn,
@@ -3947,7 +3959,8 @@ class Assembler : public vixl::internal::AssemblerBase {
   static Instr ImmFP64(double imm);
 
   // FP register type.
-  static Instr FPType(FPRegister fd) {
+  static Instr FPType(VRegister fd) {
+    VIXL_ASSERT(fd.IsScalar());
     switch (fd.GetSizeInBits()) {
       case 16:
         return FP16;

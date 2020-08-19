@@ -169,7 +169,7 @@ class Disassembler : public DecoderVisitor {
 
 class PrintDisassembler : public Disassembler {
  public:
-  explicit PrintDisassembler(FILE* stream)
+  explicit PrintDisassembler(std::ostream &stream)
       : cpu_features_auditor_(NULL),
         cpu_features_prefix_("// Needs: "),
         cpu_features_suffix_(""),
@@ -209,7 +209,7 @@ class PrintDisassembler : public Disassembler {
   const char* cpu_features_suffix_;
 
  private:
-  FILE* stream_;
+    std::ostream &stream_;
 };
 }  // namespace aarch64
 }  // namespace vixl

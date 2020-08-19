@@ -24,8 +24,6 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifdef VIXL_INCLUDE_SIMULATOR_AARCH64
-
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -39,6 +37,25 @@ using vixl::internal::SimFloat16;
 
 const Instruction* Simulator::kEndOfSimAddress = NULL;
 
+static std::function<void(void *,const void*, size_t)> read_callback;
+static std::function<void(void *,const void*, size_t)> write_callback;
+
+void MemoryAccess::ReadBlock(const void* src_addr, void *dest_buffer, const std::size_t size) {
+  read_callback(dest_buffer, src_addr, size);
+}
+
+void MemoryAccess::WriteBlock(void *dest_addr, const void *src_buffer, std::size_t size) {
+  write_callback(dest_addr, src_buffer, size);
+}
+
+void MemoryAccess::SetReadCallback(std::function<void(void *,const void*, size_t)> callback) {
+  read_callback = callback;
+}
+void MemoryAccess::SetWriteCallback(std::function<void(void *,const void*, size_t)> callback) {
+  write_callback = callback;
+}
+
+
 void SimSystemRegister::SetBits(int msb, int lsb, uint32_t bits) {
   int width = msb - lsb + 1;
   VIXL_ASSERT(IsUintN(width, bits) || IsIntN(width, bits));
@@ -47,63 +64,31 @@ void SimSystemRegister::SetBits(int msb, int lsb, uint32_t bits) {
   uint32_t mask = ((1 << width) - 1) << lsb;
   VIXL_ASSERT((mask & write_ignore_mask_) == 0);
 
-  value_ = (value_ & ~mask) | (bits & mask);
+  *value_ = (*value_ & ~mask) | (bits & mask);
 }
 
 
 SimSystemRegister SimSystemRegister::DefaultValueFor(SystemRegister id) {
   switch (id) {
     case NZCV:
-      return SimSystemRegister(0x00000000, NZCVWriteIgnoreMask);
+      return SimSystemRegister(NZCVWriteIgnoreMask);
     case FPCR:
-      return SimSystemRegister(0x00000000, FPCRWriteIgnoreMask);
+      return SimSystemRegister(FPCRWriteIgnoreMask);
     default:
       VIXL_UNREACHABLE();
       return SimSystemRegister();
   }
 }
 
-
-Simulator::Simulator(Decoder* decoder, FILE* stream)
-    : cpu_features_auditor_(decoder, CPUFeatures::All()) {
-  // Ensure that shift operations act as the simulator expects.
-  VIXL_ASSERT((static_cast<int32_t>(-1) >> 1) == -1);
-  VIXL_ASSERT((static_cast<uint32_t>(-1) >> 1) == 0x7fffffff);
-
+Simulator::Simulator(Decoder* decoder) : cpu_features_auditor_(decoder, CPUFeatures::All()) {
   instruction_stats_ = false;
 
   // Set up the decoder.
   decoder_ = decoder;
   decoder_->AppendVisitor(this);
 
-  stream_ = stream;
-
-  print_disasm_ = new PrintDisassembler(stream_);
-  // The Simulator and Disassembler share the same available list, held by the
-  // auditor. The Disassembler only annotates instructions with features that
-  // are _not_ available, so registering the auditor should have no effect
-  // unless the simulator is about to abort (due to missing features). In
-  // practice, this means that with trace enabled, the simulator will crash just
-  // after the disassembler prints the instruction, with the missing features
-  // enumerated.
-  print_disasm_->RegisterCPUFeaturesAuditor(&cpu_features_auditor_);
-
   SetColouredTrace(false);
   trace_parameters_ = LOG_NONE;
-
-  ResetState();
-
-  // Allocate and set up the simulator stack.
-  stack_ = new byte[stack_size_];
-  stack_limit_ = stack_ + stack_protection_size_;
-  // Configure the starting stack pointer.
-  //  - Find the top of the stack.
-  byte* tos = stack_ + stack_size_;
-  //  - There's a protection region at both ends of the stack.
-  tos -= stack_protection_size_;
-  //  - The stack pointer must be 16-byte aligned.
-  tos = AlignDown(tos, 16);
-  WriteSp(tos);
 
   instrumentation_ = NULL;
 
@@ -156,9 +141,9 @@ void Simulator::ResetState() {
 
 Simulator::~Simulator() {
   delete[] stack_;
-  // The decoder may outlive the simulator.
-  decoder_->RemoveVisitor(print_disasm_);
-  delete print_disasm_;
+//  // The decoder may outlive the simulator.
+//  decoder_->RemoveVisitor(print_disasm_);
+//  delete print_disasm_;
 
   decoder_->RemoveVisitor(instrumentation_);
   delete instrumentation_;
@@ -168,7 +153,7 @@ Simulator::~Simulator() {
 void Simulator::Run() {
   // Flush any written registers before executing anything, so that
   // manually-set registers are logged _before_ the first instruction.
-  LogAllWrittenRegisters();
+  //LogAllWrittenRegisters();
 
   while (pc_ != kEndOfSimAddress) {
     ExecuteInstruction();
@@ -179,6 +164,11 @@ void Simulator::Run() {
 void Simulator::RunFrom(const Instruction* first) {
   WritePc(first, NoBranchLog);
   Run();
+}
+
+void Simulator::RunInstr(const Instruction* once, uint64_t real_pc) {
+  WriteInstrOnce(once, real_pc);
+  ExecuteInstruction();
 }
 
 
@@ -246,19 +236,19 @@ const char* Simulator::XRegNameForCode(unsigned code, Reg31Mode mode) {
 
 
 const char* Simulator::HRegNameForCode(unsigned code) {
-  VIXL_ASSERT(code < kNumberOfFPRegisters);
+  VIXL_ASSERT(code < kNumberOfVRegisters);
   return hreg_names[code];
 }
 
 
 const char* Simulator::SRegNameForCode(unsigned code) {
-  VIXL_ASSERT(code < kNumberOfFPRegisters);
+  VIXL_ASSERT(code < kNumberOfVRegisters);
   return sreg_names[code];
 }
 
 
 const char* Simulator::DRegNameForCode(unsigned code) {
-  VIXL_ASSERT(code < kNumberOfFPRegisters);
+  VIXL_ASSERT(code < kNumberOfVRegisters);
   return dreg_names[code];
 }
 
@@ -297,13 +287,13 @@ void Simulator::SetColouredTrace(bool value) {
   clr_printf = value ? COLOUR(GREEN) : "";
   clr_branch_marker = value ? COLOUR(GREY) COLOUR_HIGHLIGHT : "";
 
-  if (value) {
-    print_disasm_->SetCPUFeaturesPrefix("// Needs: " COLOUR_BOLD(RED));
-    print_disasm_->SetCPUFeaturesSuffix(COLOUR(NORMAL));
-  } else {
-    print_disasm_->SetCPUFeaturesPrefix("// Needs: ");
-    print_disasm_->SetCPUFeaturesSuffix("");
-  }
+//  if (value) {
+//    print_disasm_->SetCPUFeaturesPrefix("// Needs: " COLOUR_BOLD(RED));
+//    print_disasm_->SetCPUFeaturesSuffix(COLOUR(NORMAL));
+//  } else {
+//    print_disasm_->SetCPUFeaturesPrefix("// Needs: ");
+//    print_disasm_->SetCPUFeaturesSuffix("");
+//  }
 }
 
 
@@ -312,13 +302,13 @@ void Simulator::SetTraceParameters(int parameters) {
   trace_parameters_ = parameters;
   bool disasm_after = trace_parameters_ & LOG_DISASM;
 
-  if (disasm_before != disasm_after) {
-    if (disasm_after) {
-      decoder_->InsertVisitorBefore(print_disasm_, this);
-    } else {
-      decoder_->RemoveVisitor(print_disasm_);
-    }
-  }
+//  if (disasm_before != disasm_after) {
+//    if (disasm_after) {
+//      decoder_->InsertVisitorBefore(print_disasm_, this);
+//    } else {
+//      decoder_->RemoveVisitor(print_disasm_);
+//    }
+//  }
 }
 
 
@@ -625,38 +615,38 @@ Simulator::PrintRegisterFormat Simulator::GetPrintRegisterFormatFP(
 
 
 void Simulator::PrintWrittenRegisters() {
-  for (unsigned i = 0; i < kNumberOfRegisters; i++) {
-    if (registers_[i].WrittenSinceLastLog()) PrintRegister(i);
-  }
+//  for (unsigned i = 0; i < kNumberOfRegisters; i++) {
+//    if (registers_[i].WrittenSinceLastLog()) PrintRegister(i);
+//  }
 }
 
 
 void Simulator::PrintWrittenVRegisters() {
-  for (unsigned i = 0; i < kNumberOfVRegisters; i++) {
-    // At this point there is no type information, so print as a raw 1Q.
-    if (vregisters_[i].WrittenSinceLastLog()) PrintVRegister(i, kPrintReg1Q);
-  }
+//  for (unsigned i = 0; i < kNumberOfVRegisters; i++) {
+//    // At this point there is no type information, so print as a raw 1Q.
+//    if (vregisters_[i].WrittenSinceLastLog()) PrintVRegister(i, kPrintReg1Q);
+//  }
 }
 
 
 void Simulator::PrintSystemRegisters() {
-  PrintSystemRegister(NZCV);
-  PrintSystemRegister(FPCR);
+//  PrintSystemRegister(NZCV);
+//  PrintSystemRegister(FPCR);
 }
 
 
 void Simulator::PrintRegisters() {
-  for (unsigned i = 0; i < kNumberOfRegisters; i++) {
-    PrintRegister(i);
-  }
+//  for (unsigned i = 0; i < kNumberOfRegisters; i++) {
+//    PrintRegister(i);
+//  }
 }
 
 
 void Simulator::PrintVRegisters() {
-  for (unsigned i = 0; i < kNumberOfVRegisters; i++) {
-    // At this point there is no type information, so print as a raw 1Q.
-    PrintVRegister(i, kPrintReg1Q);
-  }
+//  for (unsigned i = 0; i < kNumberOfVRegisters; i++) {
+//    // At this point there is no type information, so print as a raw 1Q.
+//    PrintVRegister(i, kPrintReg1Q);
+//  }
 }
 
 
@@ -675,72 +665,72 @@ void Simulator::PrintVRegisters() {
 void Simulator::PrintRegisterRawHelper(unsigned code,
                                        Reg31Mode r31mode,
                                        int size_in_bytes) {
-  // The template for all supported sizes.
-  //   "# x{code}: 0xffeeddccbbaa9988"
-  //   "# w{code}:         0xbbaa9988"
-  //   "# w{code}<15:0>:       0x9988"
-  //   "# w{code}<7:0>:          0x88"
-  unsigned padding_chars = (kXRegSizeInBytes - size_in_bytes) * 2;
-
-  const char* name = "";
-  const char* suffix = "";
-  switch (size_in_bytes) {
-    case kXRegSizeInBytes:
-      name = XRegNameForCode(code, r31mode);
-      break;
-    case kWRegSizeInBytes:
-      name = WRegNameForCode(code, r31mode);
-      break;
-    case 2:
-      name = WRegNameForCode(code, r31mode);
-      suffix = "<15:0>";
-      padding_chars -= strlen(suffix);
-      break;
-    case 1:
-      name = WRegNameForCode(code, r31mode);
-      suffix = "<7:0>";
-      padding_chars -= strlen(suffix);
-      break;
-    default:
-      VIXL_UNREACHABLE();
-  }
-  fprintf(stream_, "# %s%5s%s: ", clr_reg_name, name, suffix);
-
-  // Print leading padding spaces.
-  VIXL_ASSERT(padding_chars < (kXRegSizeInBytes * 2));
-  for (unsigned i = 0; i < padding_chars; i++) {
-    putc(' ', stream_);
-  }
-
-  // Print the specified bits in hexadecimal format.
-  uint64_t bits = ReadRegister<uint64_t>(code, r31mode);
-  bits &= kXRegMask >> ((kXRegSizeInBytes - size_in_bytes) * 8);
-  VIXL_STATIC_ASSERT(sizeof(bits) == kXRegSizeInBytes);
-
-  int chars = size_in_bytes * 2;
-  fprintf(stream_,
-          "%s0x%0*" PRIx64 "%s",
-          clr_reg_value,
-          chars,
-          bits,
-          clr_normal);
+//  // The template for all supported sizes.
+//  //   "# x{code}: 0xffeeddccbbaa9988"
+//  //   "# w{code}:         0xbbaa9988"
+//  //   "# w{code}<15:0>:       0x9988"
+//  //   "# w{code}<7:0>:          0x88"
+//  unsigned padding_chars = (kXRegSizeInBytes - size_in_bytes) * 2;
+//
+//  const char* name = "";
+//  const char* suffix = "";
+//  switch (size_in_bytes) {
+//    case kXRegSizeInBytes:
+//      name = XRegNameForCode(code, r31mode);
+//      break;
+//    case kWRegSizeInBytes:
+//      name = WRegNameForCode(code, r31mode);
+//      break;
+//    case 2:
+//      name = WRegNameForCode(code, r31mode);
+//      suffix = "<15:0>";
+//      padding_chars -= strlen(suffix);
+//      break;
+//    case 1:
+//      name = WRegNameForCode(code, r31mode);
+//      suffix = "<7:0>";
+//      padding_chars -= strlen(suffix);
+//      break;
+//    default:
+//      VIXL_UNREACHABLE();
+//  }
+//  fprintf(stream_, "# %s%5s%s: ", clr_reg_name, name, suffix);
+//
+//  // Print leading padding spaces.
+//  VIXL_ASSERT(padding_chars < (kXRegSizeInBytes * 2));
+//  for (unsigned i = 0; i < padding_chars; i++) {
+//    putc(' ', stream_);
+//  }
+//
+//  // Print the specified bits in hexadecimal format.
+//  uint64_t bits = ReadRegister<uint64_t>(code, r31mode);
+//  bits &= kXRegMask >> ((kXRegSizeInBytes - size_in_bytes) * 8);
+//  VIXL_STATIC_ASSERT(sizeof(bits) == kXRegSizeInBytes);
+//
+//  int chars = size_in_bytes * 2;
+//  fprintf(stream_,
+//          "%s0x%0*" PRIx64 "%s",
+//          clr_reg_value,
+//          chars,
+//          bits,
+//          clr_normal);
 }
 
 
 void Simulator::PrintRegister(unsigned code, Reg31Mode r31mode) {
-  registers_[code].NotifyRegisterLogged();
-
-  // Don't print writes into xzr.
-  if ((code == kZeroRegCode) && (r31mode == Reg31IsZeroRegister)) {
-    return;
-  }
-
-  // The template for all x and w registers:
-  //   "# x{code}: 0x{value}"
-  //   "# w{code}: 0x{value}"
-
-  PrintRegisterRawHelper(code, r31mode);
-  fprintf(stream_, "\n");
+//  registers_[code].NotifyRegisterLogged();
+//
+//  // Don't print writes into xzr.
+//  if ((code == kZeroRegCode) && (r31mode == Reg31IsZeroRegister)) {
+//    return;
+//  }
+//
+//  // The template for all x and w registers:
+//  //   "# x{code}: 0x{value}"
+//  //   "# w{code}: 0x{value}"
+//
+//  PrintRegisterRawHelper(code, r31mode);
+//  fprintf(stream_, "\n");
 }
 
 
@@ -753,39 +743,39 @@ void Simulator::PrintRegister(unsigned code, Reg31Mode r31mode) {
 // No newline is printed. This allows the caller to print more details (such as
 // a floating-point interpretation or a memory access annotation).
 void Simulator::PrintVRegisterRawHelper(unsigned code, int bytes, int lsb) {
-  // The template for vector types:
-  //   "# v{code}: 0xffeeddccbbaa99887766554433221100".
-  // An example with bytes=4 and lsb=8:
-  //   "# v{code}:         0xbbaa9988                ".
-  fprintf(stream_,
-          "# %s%5s: %s",
-          clr_vreg_name,
-          VRegNameForCode(code),
-          clr_vreg_value);
-
-  int msb = lsb + bytes - 1;
-  int byte = kQRegSizeInBytes - 1;
-
-  // Print leading padding spaces. (Two spaces per byte.)
-  while (byte > msb) {
-    fprintf(stream_, "  ");
-    byte--;
-  }
-
-  // Print the specified part of the value, byte by byte.
-  qreg_t rawbits = ReadQRegister(code);
-  fprintf(stream_, "0x");
-  while (byte >= lsb) {
-    fprintf(stream_, "%02x", rawbits.val[byte]);
-    byte--;
-  }
-
-  // Print trailing padding spaces.
-  while (byte >= 0) {
-    fprintf(stream_, "  ");
-    byte--;
-  }
-  fprintf(stream_, "%s", clr_normal);
+//  // The template for vector types:
+//  //   "# v{code}: 0xffeeddccbbaa99887766554433221100".
+//  // An example with bytes=4 and lsb=8:
+//  //   "# v{code}:         0xbbaa9988                ".
+//  fprintf(stream_,
+//          "# %s%5s: %s",
+//          clr_vreg_name,
+//          VRegNameForCode(code),
+//          clr_vreg_value);
+//
+//  int msb = lsb + bytes - 1;
+//  int byte = kQRegSizeInBytes - 1;
+//
+//  // Print leading padding spaces. (Two spaces per byte.)
+//  while (byte > msb) {
+//    fprintf(stream_, "  ");
+//    byte--;
+//  }
+//
+//  // Print the specified part of the value, byte by byte.
+//  qreg_t rawbits = ReadQRegister(code);
+//  fprintf(stream_, "0x");
+//  while (byte >= lsb) {
+//    fprintf(stream_, "%02x", rawbits.val[byte]);
+//    byte--;
+//  }
+//
+//  // Print trailing padding spaces.
+//  while (byte >= 0) {
+//    fprintf(stream_, "  ");
+//    byte--;
+//  }
+//  fprintf(stream_, "%s", clr_normal);
 }
 
 
@@ -801,174 +791,174 @@ void Simulator::PrintVRegisterFPHelper(unsigned code,
                                        unsigned lane_size_in_bytes,
                                        int lane_count,
                                        int rightmost_lane) {
-  VIXL_ASSERT((lane_size_in_bytes == kHRegSizeInBytes) ||
-              (lane_size_in_bytes == kSRegSizeInBytes) ||
-              (lane_size_in_bytes == kDRegSizeInBytes));
-
-  unsigned msb = ((lane_count + rightmost_lane) * lane_size_in_bytes);
-  VIXL_ASSERT(msb <= kQRegSizeInBytes);
-
-  // For scalar types ((lane_count == 1) && (rightmost_lane == 0)), a register
-  // name is used:
-  //   " (h{code}: {value})"
-  //   " (s{code}: {value})"
-  //   " (d{code}: {value})"
-  // For vector types, "..." is used to represent one or more omitted lanes.
-  //   " (..., {value}, {value}, ...)"
-  if (lane_size_in_bytes == kHRegSizeInBytes) {
-    // TODO: Trace tests will fail until we regenerate them.
-    return;
-  }
-  if ((lane_count == 1) && (rightmost_lane == 0)) {
-    const char* name;
-    switch (lane_size_in_bytes) {
-      case kHRegSizeInBytes:
-        name = HRegNameForCode(code);
-        break;
-      case kSRegSizeInBytes:
-        name = SRegNameForCode(code);
-        break;
-      case kDRegSizeInBytes:
-        name = DRegNameForCode(code);
-        break;
-      default:
-        name = NULL;
-        VIXL_UNREACHABLE();
-    }
-    fprintf(stream_, " (%s%s: ", clr_vreg_name, name);
-  } else {
-    if (msb < (kQRegSizeInBytes - 1)) {
-      fprintf(stream_, " (..., ");
-    } else {
-      fprintf(stream_, " (");
-    }
-  }
-
-  // Print the list of values.
-  const char* separator = "";
-  int leftmost_lane = rightmost_lane + lane_count - 1;
-  for (int lane = leftmost_lane; lane >= rightmost_lane; lane--) {
-    double value;
-    switch (lane_size_in_bytes) {
-      case kHRegSizeInBytes:
-        value = ReadVRegister(code).GetLane<uint16_t>(lane);
-        break;
-      case kSRegSizeInBytes:
-        value = ReadVRegister(code).GetLane<float>(lane);
-        break;
-      case kDRegSizeInBytes:
-        value = ReadVRegister(code).GetLane<double>(lane);
-        break;
-      default:
-        value = 0.0;
-        VIXL_UNREACHABLE();
-    }
-    if (IsNaN(value)) {
-      // The output for NaNs is implementation defined. Always print `nan`, so
-      // that traces are coherent across different implementations.
-      fprintf(stream_, "%s%snan%s", separator, clr_vreg_value, clr_normal);
-    } else {
-      fprintf(stream_,
-              "%s%s%#g%s",
-              separator,
-              clr_vreg_value,
-              value,
-              clr_normal);
-    }
-    separator = ", ";
-  }
-
-  if (rightmost_lane > 0) {
-    fprintf(stream_, ", ...");
-  }
-  fprintf(stream_, ")");
+//  VIXL_ASSERT((lane_size_in_bytes == kHRegSizeInBytes) ||
+//              (lane_size_in_bytes == kSRegSizeInBytes) ||
+//              (lane_size_in_bytes == kDRegSizeInBytes));
+//
+//  unsigned msb = ((lane_count + rightmost_lane) * lane_size_in_bytes);
+//  VIXL_ASSERT(msb <= kQRegSizeInBytes);
+//
+//  // For scalar types ((lane_count == 1) && (rightmost_lane == 0)), a register
+//  // name is used:
+//  //   " (h{code}: {value})"
+//  //   " (s{code}: {value})"
+//  //   " (d{code}: {value})"
+//  // For vector types, "..." is used to represent one or more omitted lanes.
+//  //   " (..., {value}, {value}, ...)"
+//  if (lane_size_in_bytes == kHRegSizeInBytes) {
+//    // TODO: Trace tests will fail until we regenerate them.
+//    return;
+//  }
+//  if ((lane_count == 1) && (rightmost_lane == 0)) {
+//    const char* name;
+//    switch (lane_size_in_bytes) {
+//      case kHRegSizeInBytes:
+//        name = HRegNameForCode(code);
+//        break;
+//      case kSRegSizeInBytes:
+//        name = SRegNameForCode(code);
+//        break;
+//      case kDRegSizeInBytes:
+//        name = DRegNameForCode(code);
+//        break;
+//      default:
+//        name = NULL;
+//        VIXL_UNREACHABLE();
+//    }
+//    fprintf(stream_, " (%s%s: ", clr_vreg_name, name);
+//  } else {
+//    if (msb < (kQRegSizeInBytes - 1)) {
+//      fprintf(stream_, " (..., ");
+//    } else {
+//      fprintf(stream_, " (");
+//    }
+//  }
+//
+//  // Print the list of values.
+//  const char* separator = "";
+//  int leftmost_lane = rightmost_lane + lane_count - 1;
+//  for (int lane = leftmost_lane; lane >= rightmost_lane; lane--) {
+//    double value;
+//    switch (lane_size_in_bytes) {
+//      case kHRegSizeInBytes:
+//        value = ReadVRegister(code).GetLane<uint16_t>(lane);
+//        break;
+//      case kSRegSizeInBytes:
+//        value = ReadVRegister(code).GetLane<float>(lane);
+//        break;
+//      case kDRegSizeInBytes:
+//        value = ReadVRegister(code).GetLane<double>(lane);
+//        break;
+//      default:
+//        value = 0.0;
+//        VIXL_UNREACHABLE();
+//    }
+//    if (IsNaN(value)) {
+//      // The output for NaNs is implementation defined. Always print `nan`, so
+//      // that traces are coherent across different implementations.
+//      fprintf(stream_, "%s%snan%s", separator, clr_vreg_value, clr_normal);
+//    } else {
+//      fprintf(stream_,
+//              "%s%s%#g%s",
+//              separator,
+//              clr_vreg_value,
+//              value,
+//              clr_normal);
+//    }
+//    separator = ", ";
+//  }
+//
+//  if (rightmost_lane > 0) {
+//    fprintf(stream_, ", ...");
+//  }
+//  fprintf(stream_, ")");
 }
 
 
 void Simulator::PrintVRegister(unsigned code, PrintRegisterFormat format) {
-  vregisters_[code].NotifyRegisterLogged();
-
-  int lane_size_log2 = format & kPrintRegLaneSizeMask;
-
-  int reg_size_log2;
-  if (format & kPrintRegAsQVector) {
-    reg_size_log2 = kQRegSizeInBytesLog2;
-  } else if (format & kPrintRegAsDVector) {
-    reg_size_log2 = kDRegSizeInBytesLog2;
-  } else {
-    // Scalar types.
-    reg_size_log2 = lane_size_log2;
-  }
-
-  int lane_count = 1 << (reg_size_log2 - lane_size_log2);
-  int lane_size = 1 << lane_size_log2;
-
-  // The template for vector types:
-  //   "# v{code}: 0x{rawbits} (..., {value}, ...)".
-  // The template for scalar types:
-  //   "# v{code}: 0x{rawbits} ({reg}:{value})".
-  // The values in parentheses after the bit representations are floating-point
-  // interpretations. They are displayed only if the kPrintVRegAsFP bit is set.
-
-  PrintVRegisterRawHelper(code);
-  if (format & kPrintRegAsFP) {
-    PrintVRegisterFPHelper(code, lane_size, lane_count);
-  }
-
-  fprintf(stream_, "\n");
+//  vregisters_[code].NotifyRegisterLogged();
+//
+//  int lane_size_log2 = format & kPrintRegLaneSizeMask;
+//
+//  int reg_size_log2;
+//  if (format & kPrintRegAsQVector) {
+//    reg_size_log2 = kQRegSizeInBytesLog2;
+//  } else if (format & kPrintRegAsDVector) {
+//    reg_size_log2 = kDRegSizeInBytesLog2;
+//  } else {
+//    // Scalar types.
+//    reg_size_log2 = lane_size_log2;
+//  }
+//
+//  int lane_count = 1 << (reg_size_log2 - lane_size_log2);
+//  int lane_size = 1 << lane_size_log2;
+//
+//  // The template for vector types:
+//  //   "# v{code}: 0x{rawbits} (..., {value}, ...)".
+//  // The template for scalar types:
+//  //   "# v{code}: 0x{rawbits} ({reg}:{value})".
+//  // The values in parentheses after the bit representations are floating-point
+//  // interpretations. They are displayed only if the kPrintVRegAsFP bit is set.
+//
+//  PrintVRegisterRawHelper(code);
+//  if (format & kPrintRegAsFP) {
+//    PrintVRegisterFPHelper(code, lane_size, lane_count);
+//  }
+//
+//  fprintf(stream_, "\n");
 }
 
 
 void Simulator::PrintSystemRegister(SystemRegister id) {
-  switch (id) {
-    case NZCV:
-      fprintf(stream_,
-              "# %sNZCV: %sN:%d Z:%d C:%d V:%d%s\n",
-              clr_flag_name,
-              clr_flag_value,
-              ReadNzcv().GetN(),
-              ReadNzcv().GetZ(),
-              ReadNzcv().GetC(),
-              ReadNzcv().GetV(),
-              clr_normal);
-      break;
-    case FPCR: {
-      static const char* rmode[] = {"0b00 (Round to Nearest)",
-                                    "0b01 (Round towards Plus Infinity)",
-                                    "0b10 (Round towards Minus Infinity)",
-                                    "0b11 (Round towards Zero)"};
-      VIXL_ASSERT(ReadFpcr().GetRMode() < ArrayLength(rmode));
-      fprintf(stream_,
-              "# %sFPCR: %sAHP:%d DN:%d FZ:%d RMode:%s%s\n",
-              clr_flag_name,
-              clr_flag_value,
-              ReadFpcr().GetAHP(),
-              ReadFpcr().GetDN(),
-              ReadFpcr().GetFZ(),
-              rmode[ReadFpcr().GetRMode()],
-              clr_normal);
-      break;
-    }
-    default:
-      VIXL_UNREACHABLE();
-  }
+//  switch (id) {
+//    case NZCV:
+//      fprintf(stream_,
+//              "# %sNZCV: %sN:%d Z:%d C:%d V:%d%s\n",
+//              clr_flag_name,
+//              clr_flag_value,
+//              ReadNzcv().GetN(),
+//              ReadNzcv().GetZ(),
+//              ReadNzcv().GetC(),
+//              ReadNzcv().GetV(),
+//              clr_normal);
+//      break;
+//    case FPCR: {
+//      static const char* rmode[] = {"0b00 (Round to Nearest)",
+//                                    "0b01 (Round towards Plus Infinity)",
+//                                    "0b10 (Round towards Minus Infinity)",
+//                                    "0b11 (Round towards Zero)"};
+//      VIXL_ASSERT(ReadFpcr().GetRMode() < ArrayLength(rmode));
+//      fprintf(stream_,
+//              "# %sFPCR: %sAHP:%d DN:%d FZ:%d RMode:%s%s\n",
+//              clr_flag_name,
+//              clr_flag_value,
+//              ReadFpcr().GetAHP(),
+//              ReadFpcr().GetDN(),
+//              ReadFpcr().GetFZ(),
+//              rmode[ReadFpcr().GetRMode()],
+//              clr_normal);
+//      break;
+//    }
+//    default:
+//      VIXL_UNREACHABLE();
+//  }
 }
 
 
 void Simulator::PrintRead(uintptr_t address,
                           unsigned reg_code,
                           PrintRegisterFormat format) {
-  registers_[reg_code].NotifyRegisterLogged();
-
-  USE(format);
-
-  // The template is "# {reg}: 0x{value} <- {address}".
-  PrintRegisterRawHelper(reg_code, Reg31IsZeroRegister);
-  fprintf(stream_,
-          " <- %s0x%016" PRIxPTR "%s\n",
-          clr_memory_address,
-          address,
-          clr_normal);
+//  registers_[reg_code].NotifyRegisterLogged();
+//
+//  USE(format);
+//
+//  // The template is "# {reg}: 0x{value} <- {address}".
+//  PrintRegisterRawHelper(reg_code, Reg31IsZeroRegister);
+//  fprintf(stream_,
+//          " <- %s0x%016" PRIxPTR "%s\n",
+//          clr_memory_address,
+//          address,
+//          clr_normal);
 }
 
 
@@ -976,39 +966,39 @@ void Simulator::PrintVRead(uintptr_t address,
                            unsigned reg_code,
                            PrintRegisterFormat format,
                            unsigned lane) {
-  vregisters_[reg_code].NotifyRegisterLogged();
-
-  // The template is "# v{code}: 0x{rawbits} <- address".
-  PrintVRegisterRawHelper(reg_code);
-  if (format & kPrintRegAsFP) {
-    PrintVRegisterFPHelper(reg_code,
-                           GetPrintRegLaneSizeInBytes(format),
-                           GetPrintRegLaneCount(format),
-                           lane);
-  }
-  fprintf(stream_,
-          " <- %s0x%016" PRIxPTR "%s\n",
-          clr_memory_address,
-          address,
-          clr_normal);
+//  vregisters_[reg_code].NotifyRegisterLogged();
+//
+//  // The template is "# v{code}: 0x{rawbits} <- address".
+//  PrintVRegisterRawHelper(reg_code);
+//  if (format & kPrintRegAsFP) {
+//    PrintVRegisterFPHelper(reg_code,
+//                           GetPrintRegLaneSizeInBytes(format),
+//                           GetPrintRegLaneCount(format),
+//                           lane);
+//  }
+//  fprintf(stream_,
+//          " <- %s0x%016" PRIxPTR "%s\n",
+//          clr_memory_address,
+//          address,
+//          clr_normal);
 }
 
 
 void Simulator::PrintWrite(uintptr_t address,
                            unsigned reg_code,
                            PrintRegisterFormat format) {
-  VIXL_ASSERT(GetPrintRegLaneCount(format) == 1);
-
-  // The template is "# v{code}: 0x{value} -> {address}". To keep the trace tidy
-  // and readable, the value is aligned with the values in the register trace.
-  PrintRegisterRawHelper(reg_code,
-                         Reg31IsZeroRegister,
-                         GetPrintRegSizeInBytes(format));
-  fprintf(stream_,
-          " -> %s0x%016" PRIxPTR "%s\n",
-          clr_memory_address,
-          address,
-          clr_normal);
+//  VIXL_ASSERT(GetPrintRegLaneCount(format) == 1);
+//
+//  // The template is "# v{code}: 0x{value} -> {address}". To keep the trace tidy
+//  // and readable, the value is aligned with the values in the register trace.
+//  PrintRegisterRawHelper(reg_code,
+//                         Reg31IsZeroRegister,
+//                         GetPrintRegSizeInBytes(format));
+//  fprintf(stream_,
+//          " -> %s0x%016" PRIxPTR "%s\n",
+//          clr_memory_address,
+//          address,
+//          clr_normal);
 }
 
 
@@ -1016,35 +1006,35 @@ void Simulator::PrintVWrite(uintptr_t address,
                             unsigned reg_code,
                             PrintRegisterFormat format,
                             unsigned lane) {
-  // The templates:
-  //   "# v{code}: 0x{rawbits} -> {address}"
-  //   "# v{code}: 0x{rawbits} (..., {value}, ...) -> {address}".
-  //   "# v{code}: 0x{rawbits} ({reg}:{value}) -> {address}"
-  // Because this trace doesn't represent a change to the source register's
-  // value, only the relevant part of the value is printed. To keep the trace
-  // tidy and readable, the raw value is aligned with the other values in the
-  // register trace.
-  int lane_count = GetPrintRegLaneCount(format);
-  int lane_size = GetPrintRegLaneSizeInBytes(format);
-  int reg_size = GetPrintRegSizeInBytes(format);
-  PrintVRegisterRawHelper(reg_code, reg_size, lane_size * lane);
-  if (format & kPrintRegAsFP) {
-    PrintVRegisterFPHelper(reg_code, lane_size, lane_count, lane);
-  }
-  fprintf(stream_,
-          " -> %s0x%016" PRIxPTR "%s\n",
-          clr_memory_address,
-          address,
-          clr_normal);
+//  // The templates:
+//  //   "# v{code}: 0x{rawbits} -> {address}"
+//  //   "# v{code}: 0x{rawbits} (..., {value}, ...) -> {address}".
+//  //   "# v{code}: 0x{rawbits} ({reg}:{value}) -> {address}"
+//  // Because this trace doesn't represent a change to the source register's
+//  // value, only the relevant part of the value is printed. To keep the trace
+//  // tidy and readable, the raw value is aligned with the other values in the
+//  // register trace.
+//  int lane_count = GetPrintRegLaneCount(format);
+//  int lane_size = GetPrintRegLaneSizeInBytes(format);
+//  int reg_size = GetPrintRegSizeInBytes(format);
+//  PrintVRegisterRawHelper(reg_code, reg_size, lane_size * lane);
+//  if (format & kPrintRegAsFP) {
+//    PrintVRegisterFPHelper(reg_code, lane_size, lane_count, lane);
+//  }
+//  fprintf(stream_,
+//          " -> %s0x%016" PRIxPTR "%s\n",
+//          clr_memory_address,
+//          address,
+//          clr_normal);
 }
 
 
 void Simulator::PrintTakenBranch(const Instruction* target) {
-  fprintf(stream_,
-          "# %sBranch%s to 0x%016" PRIx64 ".\n",
-          clr_branch_marker,
-          clr_normal,
-          reinterpret_cast<uint64_t>(target));
+//  fprintf(stream_,
+//          "# %sBranch%s to 0x%016" PRIx64 ".\n",
+//          clr_branch_marker,
+//          clr_normal,
+//          reinterpret_cast<uint64_t>(target));
 }
 
 
@@ -1052,13 +1042,13 @@ void Simulator::PrintTakenBranch(const Instruction* target) {
 
 
 void Simulator::VisitReserved(const Instruction* instr) {
-  // UDF is the only instruction in this group, and the Decoder is precise here.
-  VIXL_ASSERT(instr->Mask(ReservedMask) == UDF);
-
-  printf("UDF (permanently undefined) instruction at %p: 0x%08" PRIx32 "\n",
-         reinterpret_cast<const void*>(instr),
-         instr->GetInstructionBits());
-  VIXL_ABORT_WITH_MSG("UNDEFINED (UDF)\n");
+//  // UDF is the only instruction in this group, and the Decoder is precise here.
+//  VIXL_ASSERT(instr->Mask(ReservedMask) == UDF);
+//
+//  printf("UDF (permanently undefined) instruction at %p: 0x%08" PRIx32 "\n",
+//         reinterpret_cast<const void*>(instr),
+//         instr->GetInstructionBits());
+//  VIXL_ABORT_WITH_MSG("UNDEFINED (UDF)\n");
 }
 
 
@@ -1484,7 +1474,7 @@ void Simulator::LoadAcquireRCpcUnscaledOffsetHelper(const Instruction* instr) {
     VIXL_ALIGNMENT_EXCEPTION();
   }
 
-  WriteRegister<T1>(rt, static_cast<T1>(Memory::Read<T2>(address)));
+  WriteRegister<T1>(rt, static_cast<T1>(MemoryAccess::Read<T2>(address)));
 
   // Approximate load-acquire by issuing a full barrier after the load.
   __sync_synchronize();
@@ -1514,7 +1504,7 @@ void Simulator::StoreReleaseUnscaledOffsetHelper(const Instruction* instr) {
   // Approximate store-release by issuing a full barrier after the load.
   __sync_synchronize();
 
-  Memory::Write<T>(address, ReadRegister<T>(rt));
+  MemoryAccess::Write<T>(address, ReadRegister<T>(rt));
 
   LogWrite(address, rt, GetPrintRegisterFormat(element_size));
 }
@@ -1601,7 +1591,7 @@ void Simulator::VisitLoadStorePAC(const Instruction* instr) {
   // Verify that the calculated address is available to the host.
   VIXL_ASSERT(address == addr_ptr);
 
-  WriteXRegister(dst, Memory::Read<uint64_t>(addr_ptr), NoRegLog);
+  WriteXRegister(dst, MemoryAccess::Read<uint64_t>(addr_ptr), NoRegLog);
   unsigned access_size = 1 << 3;
   LogRead(addr_ptr, dst, GetPrintRegisterFormatForSize(access_size));
 }
@@ -1627,74 +1617,74 @@ void Simulator::LoadStoreHelper(const Instruction* instr,
   LoadStoreOp op = static_cast<LoadStoreOp>(instr->Mask(LoadStoreMask));
   switch (op) {
     case LDRB_w:
-      WriteWRegister(srcdst, Memory::Read<uint8_t>(address), NoRegLog);
+      WriteWRegister(srcdst, MemoryAccess::Read<uint8_t>(address), NoRegLog);
       break;
     case LDRH_w:
-      WriteWRegister(srcdst, Memory::Read<uint16_t>(address), NoRegLog);
+      WriteWRegister(srcdst, MemoryAccess::Read<uint16_t>(address), NoRegLog);
       break;
     case LDR_w:
-      WriteWRegister(srcdst, Memory::Read<uint32_t>(address), NoRegLog);
+      WriteWRegister(srcdst, MemoryAccess::Read<uint32_t>(address), NoRegLog);
       break;
     case LDR_x:
-      WriteXRegister(srcdst, Memory::Read<uint64_t>(address), NoRegLog);
+      WriteXRegister(srcdst, MemoryAccess::Read<uint64_t>(address), NoRegLog);
       break;
     case LDRSB_w:
-      WriteWRegister(srcdst, Memory::Read<int8_t>(address), NoRegLog);
+      WriteWRegister(srcdst, MemoryAccess::Read<int8_t>(address), NoRegLog);
       break;
     case LDRSH_w:
-      WriteWRegister(srcdst, Memory::Read<int16_t>(address), NoRegLog);
+      WriteWRegister(srcdst, MemoryAccess::Read<int16_t>(address), NoRegLog);
       break;
     case LDRSB_x:
-      WriteXRegister(srcdst, Memory::Read<int8_t>(address), NoRegLog);
+      WriteXRegister(srcdst, MemoryAccess::Read<int8_t>(address), NoRegLog);
       break;
     case LDRSH_x:
-      WriteXRegister(srcdst, Memory::Read<int16_t>(address), NoRegLog);
+      WriteXRegister(srcdst, MemoryAccess::Read<int16_t>(address), NoRegLog);
       break;
     case LDRSW_x:
-      WriteXRegister(srcdst, Memory::Read<int32_t>(address), NoRegLog);
+      WriteXRegister(srcdst, MemoryAccess::Read<int32_t>(address), NoRegLog);
       break;
     case LDR_b:
-      WriteBRegister(srcdst, Memory::Read<uint8_t>(address), NoRegLog);
+      WriteBRegister(srcdst, MemoryAccess::Read<uint8_t>(address), NoRegLog);
       break;
     case LDR_h:
-      WriteHRegister(srcdst, Memory::Read<uint16_t>(address), NoRegLog);
+      WriteHRegister(srcdst, MemoryAccess::Read<uint16_t>(address), NoRegLog);
       break;
     case LDR_s:
-      WriteSRegister(srcdst, Memory::Read<float>(address), NoRegLog);
+      WriteSRegister(srcdst, MemoryAccess::Read<float>(address), NoRegLog);
       break;
     case LDR_d:
-      WriteDRegister(srcdst, Memory::Read<double>(address), NoRegLog);
+      WriteDRegister(srcdst, MemoryAccess::Read<double>(address), NoRegLog);
       break;
     case LDR_q:
-      WriteQRegister(srcdst, Memory::Read<qreg_t>(address), NoRegLog);
+      WriteQRegister(srcdst, MemoryAccess::Read<qreg_t>(address), NoRegLog);
       break;
 
     case STRB_w:
-      Memory::Write<uint8_t>(address, ReadWRegister(srcdst));
+      MemoryAccess::Write<uint8_t>(address, ReadWRegister(srcdst));
       break;
     case STRH_w:
-      Memory::Write<uint16_t>(address, ReadWRegister(srcdst));
+      MemoryAccess::Write<uint16_t>(address, ReadWRegister(srcdst));
       break;
     case STR_w:
-      Memory::Write<uint32_t>(address, ReadWRegister(srcdst));
+      MemoryAccess::Write<uint32_t>(address, ReadWRegister(srcdst));
       break;
     case STR_x:
-      Memory::Write<uint64_t>(address, ReadXRegister(srcdst));
+      MemoryAccess::Write<uint64_t>(address, ReadXRegister(srcdst));
       break;
     case STR_b:
-      Memory::Write<uint8_t>(address, ReadBRegister(srcdst));
+      MemoryAccess::Write<uint8_t>(address, ReadBRegister(srcdst));
       break;
     case STR_h:
-      Memory::Write<uint16_t>(address, ReadHRegisterBits(srcdst));
+      MemoryAccess::Write<uint16_t>(address, ReadHRegisterBits(srcdst));
       break;
     case STR_s:
-      Memory::Write<float>(address, ReadSRegister(srcdst));
+      MemoryAccess::Write<float>(address, ReadSRegister(srcdst));
       break;
     case STR_d:
-      Memory::Write<double>(address, ReadDRegister(srcdst));
+      MemoryAccess::Write<double>(address, ReadDRegister(srcdst));
       break;
     case STR_q:
-      Memory::Write<qreg_t>(address, ReadQRegister(srcdst));
+      MemoryAccess::Write<qreg_t>(address, ReadQRegister(srcdst));
       break;
 
     // Ignore prfm hint instructions.
@@ -1769,58 +1759,58 @@ void Simulator::LoadStorePairHelper(const Instruction* instr,
     // Use NoRegLog to suppress the register trace (LOG_REGS, LOG_FP_REGS). We
     // will print a more detailed log.
     case LDP_w: {
-      WriteWRegister(rt, Memory::Read<uint32_t>(address), NoRegLog);
-      WriteWRegister(rt2, Memory::Read<uint32_t>(address2), NoRegLog);
+      WriteWRegister(rt, MemoryAccess::Read<uint32_t>(address), NoRegLog);
+      WriteWRegister(rt2, MemoryAccess::Read<uint32_t>(address2), NoRegLog);
       break;
     }
     case LDP_s: {
-      WriteSRegister(rt, Memory::Read<float>(address), NoRegLog);
-      WriteSRegister(rt2, Memory::Read<float>(address2), NoRegLog);
+      WriteSRegister(rt, MemoryAccess::Read<float>(address), NoRegLog);
+      WriteSRegister(rt2, MemoryAccess::Read<float>(address2), NoRegLog);
       break;
     }
     case LDP_x: {
-      WriteXRegister(rt, Memory::Read<uint64_t>(address), NoRegLog);
-      WriteXRegister(rt2, Memory::Read<uint64_t>(address2), NoRegLog);
+      WriteXRegister(rt, MemoryAccess::Read<uint64_t>(address), NoRegLog);
+      WriteXRegister(rt2, MemoryAccess::Read<uint64_t>(address2), NoRegLog);
       break;
     }
     case LDP_d: {
-      WriteDRegister(rt, Memory::Read<double>(address), NoRegLog);
-      WriteDRegister(rt2, Memory::Read<double>(address2), NoRegLog);
+      WriteDRegister(rt, MemoryAccess::Read<double>(address), NoRegLog);
+      WriteDRegister(rt2, MemoryAccess::Read<double>(address2), NoRegLog);
       break;
     }
     case LDP_q: {
-      WriteQRegister(rt, Memory::Read<qreg_t>(address), NoRegLog);
-      WriteQRegister(rt2, Memory::Read<qreg_t>(address2), NoRegLog);
+      WriteQRegister(rt, MemoryAccess::Read<qreg_t>(address), NoRegLog);
+      WriteQRegister(rt2, MemoryAccess::Read<qreg_t>(address2), NoRegLog);
       break;
     }
     case LDPSW_x: {
-      WriteXRegister(rt, Memory::Read<int32_t>(address), NoRegLog);
-      WriteXRegister(rt2, Memory::Read<int32_t>(address2), NoRegLog);
+      WriteXRegister(rt, MemoryAccess::Read<int32_t>(address), NoRegLog);
+      WriteXRegister(rt2, MemoryAccess::Read<int32_t>(address2), NoRegLog);
       break;
     }
     case STP_w: {
-      Memory::Write<uint32_t>(address, ReadWRegister(rt));
-      Memory::Write<uint32_t>(address2, ReadWRegister(rt2));
+      MemoryAccess::Write<uint32_t>(address, ReadWRegister(rt));
+      MemoryAccess::Write<uint32_t>(address2, ReadWRegister(rt2));
       break;
     }
     case STP_s: {
-      Memory::Write<float>(address, ReadSRegister(rt));
-      Memory::Write<float>(address2, ReadSRegister(rt2));
+      MemoryAccess::Write<float>(address, ReadSRegister(rt));
+      MemoryAccess::Write<float>(address2, ReadSRegister(rt2));
       break;
     }
     case STP_x: {
-      Memory::Write<uint64_t>(address, ReadXRegister(rt));
-      Memory::Write<uint64_t>(address2, ReadXRegister(rt2));
+      MemoryAccess::Write<uint64_t>(address, ReadXRegister(rt));
+      MemoryAccess::Write<uint64_t>(address2, ReadXRegister(rt2));
       break;
     }
     case STP_d: {
-      Memory::Write<double>(address, ReadDRegister(rt));
-      Memory::Write<double>(address2, ReadDRegister(rt2));
+      MemoryAccess::Write<double>(address, ReadDRegister(rt));
+      MemoryAccess::Write<double>(address2, ReadDRegister(rt2));
       break;
     }
     case STP_q: {
-      Memory::Write<qreg_t>(address, ReadQRegister(rt));
-      Memory::Write<qreg_t>(address2, ReadQRegister(rt2));
+      MemoryAccess::Write<qreg_t>(address, ReadQRegister(rt));
+      MemoryAccess::Write<qreg_t>(address2, ReadQRegister(rt2));
       break;
     }
     default:
@@ -1878,7 +1868,7 @@ void Simulator::CompareAndSwapHelper(const Instruction* instr) {
   // associated with that location, even if the compare subsequently fails.
   local_monitor_.Clear();
 
-  T data = Memory::Read<T>(address);
+  T data = MemoryAccess::Read<T>(address);
   if (is_acquire) {
     // Approximate load-acquire by issuing a full barrier after the load.
     __sync_synchronize();
@@ -1889,11 +1879,11 @@ void Simulator::CompareAndSwapHelper(const Instruction* instr) {
       // Approximate store-release by issuing a full barrier before the store.
       __sync_synchronize();
     }
-    Memory::Write<T>(address, newvalue);
-    LogWrite(address, rt, GetPrintRegisterFormatForSize(element_size));
+    MemoryAccess::Write<T>(address, newvalue);
+    //LogWrite(address, rt, GetPrintRegisterFormatForSize(element_size));
   }
   WriteRegister<T>(rs, data);
-  LogRead(address, rs, GetPrintRegisterFormatForSize(element_size));
+  //LogRead(address, rs, GetPrintRegisterFormatForSize(element_size));
 }
 
 
@@ -1925,8 +1915,8 @@ void Simulator::CompareAndSwapPairHelper(const Instruction* instr) {
   // associated with that location, even if the compare subsequently fails.
   local_monitor_.Clear();
 
-  T data_high = Memory::Read<T>(address);
-  T data_low = Memory::Read<T>(address2);
+  T data_high = MemoryAccess::Read<T>(address);
+  T data_low = MemoryAccess::Read<T>(address2);
 
   if (is_acquire) {
     // Approximate load-acquire by issuing a full barrier after the load.
@@ -1941,34 +1931,34 @@ void Simulator::CompareAndSwapPairHelper(const Instruction* instr) {
       __sync_synchronize();
     }
 
-    Memory::Write<T>(address, newvalue_high);
-    Memory::Write<T>(address2, newvalue_low);
+    MemoryAccess::Write<T>(address, newvalue_high);
+    MemoryAccess::Write<T>(address2, newvalue_low);
   }
 
   WriteRegister<T>(rs + 1, data_high);
   WriteRegister<T>(rs, data_low);
 
-  LogRead(address, rs + 1, GetPrintRegisterFormatForSize(element_size));
-  LogRead(address2, rs, GetPrintRegisterFormatForSize(element_size));
-
-  if (same) {
-    LogWrite(address, rt + 1, GetPrintRegisterFormatForSize(element_size));
-    LogWrite(address2, rt, GetPrintRegisterFormatForSize(element_size));
-  }
+//  LogRead(address, rs + 1, GetPrintRegisterFormatForSize(element_size));
+//  LogRead(address2, rs, GetPrintRegisterFormatForSize(element_size));
+//
+//  if (same) {
+//    LogWrite(address, rt + 1, GetPrintRegisterFormatForSize(element_size));
+//    LogWrite(address2, rt, GetPrintRegisterFormatForSize(element_size));
+//  }
 }
 
 
 void Simulator::PrintExclusiveAccessWarning() {
-  if (print_exclusive_access_warning_) {
-    fprintf(stderr,
-            "%sWARNING:%s VIXL simulator support for "
-            "load-/store-/clear-exclusive "
-            "instructions is limited. Refer to the README for details.%s\n",
-            clr_warning,
-            clr_warning_message,
-            clr_normal);
-    print_exclusive_access_warning_ = false;
-  }
+//  if (print_exclusive_access_warning_) {
+//    fprintf(stderr,
+//            "%sWARNING:%s VIXL simulator support for "
+//            "load-/store-/clear-exclusive "
+//            "instructions is limited. Refer to the README for details.%s\n",
+//            clr_warning,
+//            clr_warning_message,
+//            clr_normal);
+//    print_exclusive_access_warning_ = false;
+//  }
 }
 
 
@@ -2050,38 +2040,38 @@ void Simulator::VisitLoadStoreExclusive(const Instruction* instr) {
           case LDAXRB_w:
           case LDARB_w:
           case LDLARB:
-            WriteWRegister(rt, Memory::Read<uint8_t>(address), NoRegLog);
+            WriteWRegister(rt, MemoryAccess::Read<uint8_t>(address), NoRegLog);
             break;
           case LDXRH_w:
           case LDAXRH_w:
           case LDARH_w:
           case LDLARH:
-            WriteWRegister(rt, Memory::Read<uint16_t>(address), NoRegLog);
+            WriteWRegister(rt, MemoryAccess::Read<uint16_t>(address), NoRegLog);
             break;
           case LDXR_w:
           case LDAXR_w:
           case LDAR_w:
           case LDLAR_w:
-            WriteWRegister(rt, Memory::Read<uint32_t>(address), NoRegLog);
+            WriteWRegister(rt, MemoryAccess::Read<uint32_t>(address), NoRegLog);
             break;
           case LDXR_x:
           case LDAXR_x:
           case LDAR_x:
           case LDLAR_x:
-            WriteXRegister(rt, Memory::Read<uint64_t>(address), NoRegLog);
+            WriteXRegister(rt, MemoryAccess::Read<uint64_t>(address), NoRegLog);
             break;
           case LDXP_w:
           case LDAXP_w:
-            WriteWRegister(rt, Memory::Read<uint32_t>(address), NoRegLog);
+            WriteWRegister(rt, MemoryAccess::Read<uint32_t>(address), NoRegLog);
             WriteWRegister(rt2,
-                           Memory::Read<uint32_t>(address + element_size),
+                           MemoryAccess::Read<uint32_t>(address + element_size),
                            NoRegLog);
             break;
           case LDXP_x:
           case LDAXP_x:
-            WriteXRegister(rt, Memory::Read<uint64_t>(address), NoRegLog);
+            WriteXRegister(rt, MemoryAccess::Read<uint64_t>(address), NoRegLog);
             WriteXRegister(rt2,
-                           Memory::Read<uint64_t>(address + element_size),
+                           MemoryAccess::Read<uint64_t>(address + element_size),
                            NoRegLog);
             break;
           default:
@@ -2125,48 +2115,48 @@ void Simulator::VisitLoadStoreExclusive(const Instruction* instr) {
             case STLXRB_w:
             case STLRB_w:
             case STLLRB:
-              Memory::Write<uint8_t>(address, ReadWRegister(rt));
+              MemoryAccess::Write<uint8_t>(address, ReadWRegister(rt));
               break;
             case STXRH_w:
             case STLXRH_w:
             case STLRH_w:
             case STLLRH:
-              Memory::Write<uint16_t>(address, ReadWRegister(rt));
+              MemoryAccess::Write<uint16_t>(address, ReadWRegister(rt));
               break;
             case STXR_w:
             case STLXR_w:
             case STLR_w:
             case STLLR_w:
-              Memory::Write<uint32_t>(address, ReadWRegister(rt));
+              MemoryAccess::Write<uint32_t>(address, ReadWRegister(rt));
               break;
             case STXR_x:
             case STLXR_x:
             case STLR_x:
             case STLLR_x:
-              Memory::Write<uint64_t>(address, ReadXRegister(rt));
+              MemoryAccess::Write<uint64_t>(address, ReadXRegister(rt));
               break;
             case STXP_w:
             case STLXP_w:
-              Memory::Write<uint32_t>(address, ReadWRegister(rt));
-              Memory::Write<uint32_t>(address + element_size,
+              MemoryAccess::Write<uint32_t>(address, ReadWRegister(rt));
+              MemoryAccess::Write<uint32_t>(address + element_size,
                                       ReadWRegister(rt2));
               break;
             case STXP_x:
             case STLXP_x:
-              Memory::Write<uint64_t>(address, ReadXRegister(rt));
-              Memory::Write<uint64_t>(address + element_size,
+              MemoryAccess::Write<uint64_t>(address, ReadXRegister(rt));
+              MemoryAccess::Write<uint64_t>(address + element_size,
                                       ReadXRegister(rt2));
               break;
             default:
               VIXL_UNREACHABLE();
           }
 
-          LogWrite(address, rt, GetPrintRegisterFormatForSize(element_size));
-          if (is_pair) {
-            LogWrite(address + element_size,
-                     rt2,
-                     GetPrintRegisterFormatForSize(element_size));
-          }
+//          LogWrite(address, rt, GetPrintRegisterFormatForSize(element_size));
+//          if (is_pair) {
+//            LogWrite(address + element_size,
+//                     rt2,
+//                     GetPrintRegisterFormatForSize(element_size));
+//          }
         }
       }
   }
@@ -2188,7 +2178,7 @@ void Simulator::AtomicMemorySimpleHelper(const Instruction* instr) {
 
   T value = ReadRegister<T>(rs);
 
-  T data = Memory::Read<T>(address);
+  T data = MemoryAccess::Read<T>(address);
 
   if (is_acquire) {
     // Approximate load-acquire by issuing a full barrier after the load.
@@ -2229,7 +2219,7 @@ void Simulator::AtomicMemorySimpleHelper(const Instruction* instr) {
     __sync_synchronize();
   }
 
-  Memory::Write<T>(address, result);
+  MemoryAccess::Write<T>(address, result);
   WriteRegister<T>(rt, data, NoRegLog);
 
   LogRead(address, rt, GetPrintRegisterFormatForSize(element_size));
@@ -2250,7 +2240,7 @@ void Simulator::AtomicMemorySwapHelper(const Instruction* instr) {
 
   CheckIsValidUnalignedAtomicAccess(rn, address, element_size);
 
-  T data = Memory::Read<T>(address);
+  T data = MemoryAccess::Read<T>(address);
   if (is_acquire) {
     // Approximate load-acquire by issuing a full barrier after the load.
     __sync_synchronize();
@@ -2260,7 +2250,7 @@ void Simulator::AtomicMemorySwapHelper(const Instruction* instr) {
     // Approximate store-release by issuing a full barrier before the store.
     __sync_synchronize();
   }
-  Memory::Write<T>(address, ReadRegister<T>(rs));
+  MemoryAccess::Write<T>(address, ReadRegister<T>(rs));
 
   WriteRegister<T>(rt, data);
 
@@ -2278,7 +2268,7 @@ void Simulator::LoadAcquireRCpcHelper(const Instruction* instr) {
 
   CheckIsValidUnalignedAtomicAccess(rn, address, element_size);
 
-  WriteRegister<T>(rt, Memory::Read<T>(address));
+  WriteRegister<T>(rt, MemoryAccess::Read<T>(address));
 
   // Approximate load-acquire by issuing a full barrier after the load.
   __sync_synchronize();
@@ -2390,7 +2380,7 @@ void Simulator::VisitAtomicMemory(const Instruction* instr) {
 
 void Simulator::VisitLoadLiteral(const Instruction* instr) {
   unsigned rt = instr->GetRt();
-  uint64_t address = instr->GetLiteralAddress<uint64_t>();
+  uint64_t address = real_pc_ ? instr->GetLiteralAddress<uint64_t>(real_pc_) : instr->GetLiteralAddress<uint64_t>();
 
   // Verify that the calculated address is available to the host.
   VIXL_ASSERT(address == static_cast<uintptr_t>(address));
@@ -2399,27 +2389,27 @@ void Simulator::VisitLoadLiteral(const Instruction* instr) {
     // Use NoRegLog to suppress the register trace (LOG_REGS, LOG_VREGS), then
     // print a more detailed log.
     case LDR_w_lit:
-      WriteWRegister(rt, Memory::Read<uint32_t>(address), NoRegLog);
+      WriteWRegister(rt, MemoryAccess::Read<uint32_t>(address), NoRegLog);
       LogRead(address, rt, kPrintWReg);
       break;
     case LDR_x_lit:
-      WriteXRegister(rt, Memory::Read<uint64_t>(address), NoRegLog);
+      WriteXRegister(rt, MemoryAccess::Read<uint64_t>(address), NoRegLog);
       LogRead(address, rt, kPrintXReg);
       break;
     case LDR_s_lit:
-      WriteSRegister(rt, Memory::Read<float>(address), NoRegLog);
+      WriteSRegister(rt, MemoryAccess::Read<float>(address), NoRegLog);
       LogVRead(address, rt, kPrintSReg);
       break;
     case LDR_d_lit:
-      WriteDRegister(rt, Memory::Read<double>(address), NoRegLog);
+      WriteDRegister(rt, MemoryAccess::Read<double>(address), NoRegLog);
       LogVRead(address, rt, kPrintDReg);
       break;
     case LDR_q_lit:
-      WriteQRegister(rt, Memory::Read<qreg_t>(address), NoRegLog);
+      WriteQRegister(rt, MemoryAccess::Read<qreg_t>(address), NoRegLog);
       LogVRead(address, rt, kPrintReg1Q);
       break;
     case LDRSW_x_lit:
-      WriteXRegister(rt, Memory::Read<int32_t>(address), NoRegLog);
+      WriteXRegister(rt, MemoryAccess::Read<int32_t>(address), NoRegLog);
       LogRead(address, rt, kPrintWReg);
       break;
 
@@ -3513,6 +3503,7 @@ void Simulator::VisitFPDataProcessing1Source(const Instruction* instr) {
   SimVRegister& rd = ReadVRegister(instr->GetRd());
   SimVRegister& rn = ReadVRegister(instr->GetRn());
   bool inexact_exception = false;
+  FrintMode frint_mode = kFrintToInteger;
 
   unsigned fd = instr->GetRd();
   unsigned fn = instr->GetRn();
@@ -3570,6 +3561,28 @@ void Simulator::VisitFPDataProcessing1Source(const Instruction* instr) {
       // Explicitly log the register update whilst we have type information.
       LogVRegister(fd, GetPrintRegisterFormatFP(vform));
       return;
+    case FRINT32X_s:
+    case FRINT32X_d:
+      inexact_exception = true;
+      frint_mode = kFrintToInt32;
+      break;  // Use FPCR rounding mode.
+    case FRINT64X_s:
+    case FRINT64X_d:
+      inexact_exception = true;
+      frint_mode = kFrintToInt64;
+      break;  // Use FPCR rounding mode.
+    case FRINT32Z_s:
+    case FRINT32Z_d:
+      inexact_exception = true;
+      frint_mode = kFrintToInt32;
+      fpcr_rounding = FPZero;
+      break;
+    case FRINT64Z_s:
+    case FRINT64Z_d:
+      inexact_exception = true;
+      frint_mode = kFrintToInt64;
+      fpcr_rounding = FPZero;
+      break;
     case FRINTI_h:
     case FRINTI_s:
     case FRINTI_d:
@@ -3609,7 +3622,7 @@ void Simulator::VisitFPDataProcessing1Source(const Instruction* instr) {
   }
 
   // Only FRINT* instructions fall through the switch above.
-  frint(vform, rd, rn, fpcr_rounding, inexact_exception);
+  frint(vform, rd, rn, fpcr_rounding, inexact_exception, frint_mode);
   // Explicitly log the register update whilst we have type information.
   LogVRegister(fd, GetPrintRegisterFormatFP(vform));
 }
@@ -3816,7 +3829,7 @@ void Simulator::SysOp_W(int op, int64_t val) {
     case CIVAC: {
       // Perform a dummy memory access to ensure that we have read access
       // to the specified address.
-      volatile uint8_t y = Memory::Read<uint8_t>(val);
+      volatile uint8_t y = MemoryAccess::Read<uint8_t>(val);
       USE(y);
       // TODO: Implement "case ZVA:".
       break;
@@ -4160,6 +4173,7 @@ void Simulator::VisitNEON2RegMisc(const Instruction* instr) {
     VectorFormat fpf = nfd.GetVectorFormat(nfd.FPFormatMap());
     FPRounding fpcr_rounding = static_cast<FPRounding>(ReadFpcr().GetRMode());
     bool inexact_exception = false;
+    FrintMode frint_mode = kFrintToInteger;
 
     // These instructions all use a one bit size field, except XTN, SQXTUN,
     // SHLL, SQXTN and UQXTN, which use a two bit size field.
@@ -4197,6 +4211,24 @@ void Simulator::VisitNEON2RegMisc(const Instruction* instr) {
 
       // The following instructions break from the switch statement, rather
       // than return.
+      case NEON_FRINT32X:
+        inexact_exception = true;
+        frint_mode = kFrintToInt32;
+        break;  // Use FPCR rounding mode.
+      case NEON_FRINT32Z:
+        inexact_exception = true;
+        frint_mode = kFrintToInt32;
+        fpcr_rounding = FPZero;
+        break;
+      case NEON_FRINT64X:
+        inexact_exception = true;
+        frint_mode = kFrintToInt64;
+        break;  // Use FPCR rounding mode.
+      case NEON_FRINT64Z:
+        inexact_exception = true;
+        frint_mode = kFrintToInt64;
+        fpcr_rounding = FPZero;
+        break;
       case NEON_FRINTI:
         break;  // Use FPCR rounding mode.
       case NEON_FRINTX:
@@ -4314,7 +4346,7 @@ void Simulator::VisitNEON2RegMisc(const Instruction* instr) {
     }
 
     // Only FRINT* instructions fall through the switch above.
-    frint(fpf, rd, rn, fpcr_rounding, inexact_exception);
+    frint(fpf, rd, rn, fpcr_rounding, inexact_exception, frint_mode);
   }
 }
 
@@ -6880,11 +6912,11 @@ void Simulator::DoRuntimeCall(const Instruction* instr) {
   // The appropriate `Simulator::SimulateRuntimeCall()` wrapper and the function
   // to call are passed inlined in the assembly.
   uintptr_t call_wrapper_address =
-      Memory::Read<uintptr_t>(instr + kRuntimeCallWrapperOffset);
+      MemoryAccess::Read<uintptr_t>(instr + kRuntimeCallWrapperOffset);
   uintptr_t function_address =
-      Memory::Read<uintptr_t>(instr + kRuntimeCallFunctionOffset);
+      MemoryAccess::Read<uintptr_t>(instr + kRuntimeCallFunctionOffset);
   RuntimeCallType call_type = static_cast<RuntimeCallType>(
-      Memory::Read<uint32_t>(instr + kRuntimeCallTypeOffset));
+      MemoryAccess::Read<uint32_t>(instr + kRuntimeCallTypeOffset));
   auto runtime_call_wrapper =
       reinterpret_cast<void (*)(Simulator*, uintptr_t)>(call_wrapper_address);
 
@@ -6919,7 +6951,7 @@ void Simulator::DoConfigureCPUFeatures(const Instruction* instr) {
   // Read the kNone-terminated list of features.
   CPUFeatures parameters;
   while (true) {
-    ElementType feature = Memory::Read<ElementType>(instr + offset);
+    ElementType feature = MemoryAccess::Read<ElementType>(instr + offset);
     offset += element_size;
     if (feature == static_cast<ElementType>(CPUFeatures::kNone)) break;
     parameters.Combine(static_cast<CPUFeatures::Feature>(feature));
@@ -6965,5 +6997,3 @@ void Simulator::DoRestoreCPUFeatures(const Instruction* instr) {
 
 }  // namespace aarch64
 }  // namespace vixl
-
-#endif  // VIXL_INCLUDE_SIMULATOR_AARCH64

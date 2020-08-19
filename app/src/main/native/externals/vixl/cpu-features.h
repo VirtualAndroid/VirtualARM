@@ -102,7 +102,9 @@ namespace vixl {
   /* Flag manipulation instructions: {AX,XA}FLAG                            */ \
   V(kAXFlag,              "AXFlag",                 NULL)                      \
   /* Random number generation extension,                                    */ \
-  V(kRNG,                 "RNG",                    NULL)
+  V(kRNG,                 "RNG",                    NULL)                      \
+  /* Floating-point round to {32,64}-bit integer.                           */ \
+  V(kFrintToFixedSizedInt,"Frint (bounded)",        NULL)
 // clang-format on
 
 
@@ -217,8 +219,18 @@ class CPUFeatures {
     return CPUFeatures(kFP, kNEON, kCRC32);
   }
 
+  // Construct a new CPUFeatures object using ID registers. This assumes that
+  // kIDRegisterEmulation is present.
+  static CPUFeatures InferFromIDRegisters();
+
+  enum QueryIDRegistersOption {
+    kDontQueryIDRegisters,
+    kQueryIDRegistersIfAvailable
+  };
+
   // Construct a new CPUFeatures object based on what the OS reports.
-  static CPUFeatures InferFromOS();
+  static CPUFeatures InferFromOS(
+      QueryIDRegistersOption option = kQueryIDRegistersIfAvailable);
 
   // Combine another CPUFeatures object into this one. Features that already
   // exist in this set are left unchanged.
@@ -262,6 +274,7 @@ class CPUFeatures {
 
   // Return the number of enabled features.
   size_t Count() const;
+  bool HasNoFeatures() const { return Count() == 0; }
 
   // Check for equivalence.
   bool operator==(const CPUFeatures& other) const {
@@ -320,8 +333,10 @@ class CPUFeaturesConstIterator {
   CPUFeatures::Feature feature_;
 
   bool IsValid() const {
-    return ((cpu_features_ == NULL) && (feature_ == CPUFeatures::kNone)) ||
-           cpu_features_->Has(feature_);
+    if (cpu_features_ == NULL) {
+      return feature_ == CPUFeatures::kNone;
+    }
+    return cpu_features_->Has(feature_);
   }
 };
 

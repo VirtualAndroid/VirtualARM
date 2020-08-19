@@ -107,7 +107,7 @@ namespace DBI::A64 {
             std::array<Register, temp_count> temps;
             int index = 0;
             for (int i = 0; i < 29; ++i) {
-                if (index == temp_count - 1)
+                if (index == temp_count)
                     break;
                 if (i == reg_ctx_.GetCode())
                     continue;

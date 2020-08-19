@@ -24,30 +24,32 @@ namespace DBI::A64 {
 
     class RegisterAllocator : public BaseObject {
     public:
-        const XRegister &ContextPtr();
+        const Register &ContextPtr();
         void ClearContext();
-        const XRegister &AcquireTempX();
-        const XRegister &ReleaseTempX(const XRegister &x);
+        const Register &AcquireTempX();
+        const Register &ReleaseTempX(const Register &x);
         void MarkInUsed(const Register &x, bool in_used = true);
         bool InUsed(const Register &x);
         void Reset();
     private:
         bool in_used_[32]{false};
         BaseContext* context_;
-        XRegister *context_ptr_;
+        Register *context_ptr_;
     };
 
     class BaseContext : public BaseObject {
     public:
-        virtual const XRegister &LoadContextPtr() = 0;
-        virtual void ClearContextPtr(const XRegister &context) = 0;
-        void Set(const XRegister &x, u64 value);
-        void Set(const WRegister &x, u32 value);
+        virtual const Register &LoadContextPtr() = 0;
+        virtual void ClearContextPtr(const Register &context) = 0;
+        void Set(const Register &x, u64 value);
+        void Set(const Register &x, u32 value);
         virtual void Push(const Register &reg);
         virtual void Pop(const Register &reg);
         virtual void Push(const Register &reg1, const Register &reg2);
         virtual void Pop(const Register &reg1, const Register &reg2);
         void MarkPC(u64 value);
+        void SaveContext();
+        void LoadContext();
     protected:
         RegisterAllocator register_alloc_;
         // must pic code
@@ -57,8 +59,8 @@ namespace DBI::A64 {
 
     class QuickContext : public BaseContext {
     public:
-        const XRegister &LoadContextPtr() override;
-        void ClearContextPtr(const XRegister &context) override;
+        const Register &LoadContextPtr() override;
+        void ClearContextPtr(const Register &context) override;
     };
 
 }

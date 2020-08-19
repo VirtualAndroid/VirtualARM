@@ -109,7 +109,7 @@ class Pool {
 class LiteralPool : public Pool {
  public:
   explicit LiteralPool(MacroAssembler* masm);
-  ~LiteralPool();
+  ~LiteralPool() VIXL_NEGATIVE_TESTING_ALLOW_EXCEPTION;
   void Reset();
 
   void AddEntry(RawLiteral* literal);
@@ -644,7 +644,7 @@ class MacroAssembler : public Assembler, public MacroAssemblerInterface {
                                  uint64_t imm);
   static bool OneInstrMoveImmediateHelper(MacroAssembler* masm,
                                           const Register& dst,
-                                          int64_t imm);
+                                          uint64_t imm);
 
 
   // Logical macros.
@@ -714,7 +714,7 @@ class MacroAssembler : public Assembler, public MacroAssemblerInterface {
   // Try to move an immediate into the destination register in a single
   // instruction. Returns true for success, and updates the contents of dst.
   // Returns false, otherwise.
-  bool TryOneInstrMoveImmediate(const Register& dst, int64_t imm);
+  bool TryOneInstrMoveImmediate(const Register& dst, uint64_t imm);
 
   // Move an immediate into register dst, and return an Operand object for
   // use with a subsequent instruction that accepts a shift. The value moved
@@ -722,7 +722,7 @@ class MacroAssembler : public Assembler, public MacroAssemblerInterface {
   // operation applied to it that will be subsequently undone by the shift
   // applied in the Operand.
   Operand MoveImmediateForShiftedOp(const Register& dst,
-                                    int64_t imm,
+                                    uint64_t imm,
                                     PreShiftImmMode mode);
 
   void Move(const GenericOperand& dst, const GenericOperand& src);
@@ -2788,6 +2788,10 @@ class MacroAssembler : public Assembler, public MacroAssemblerInterface {
   V(fneg, Fneg)                  \
   V(frecpe, Frecpe)              \
   V(frecpx, Frecpx)              \
+  V(frint32x, Frint32x)          \
+  V(frint32z, Frint32z)          \
+  V(frint64x, Frint64x)          \
+  V(frint64z, Frint64z)          \
   V(frinta, Frinta)              \
   V(frinti, Frinti)              \
   V(frintm, Frintm)              \
@@ -3482,9 +3486,9 @@ class MacroAssembler : public Assembler, public MacroAssemblerInterface {
     return GetScratchRegisterList();
   }
 
-  CPURegList* GetScratchFPRegisterList() { return &fptmp_list_; }
-  VIXL_DEPRECATED("GetScratchFPRegisterList", CPURegList* FPTmpList()) {
-    return GetScratchFPRegisterList();
+  CPURegList* GetScratchVRegisterList() { return &fptmp_list_; }
+  VIXL_DEPRECATED("GetScratchVRegisterList", CPURegList* FPTmpList()) {
+    return GetScratchVRegisterList();
   }
 
   // Get or set the current (most-deeply-nested) UseScratchRegisterScope.
@@ -3809,7 +3813,7 @@ class BlockPoolsScope {
 
 
 // This scope utility allows scratch registers to be managed safely. The
-// MacroAssembler's GetScratchRegisterList() (and GetScratchFPRegisterList()) is
+// MacroAssembler's GetScratchRegisterList() (and GetScratchVRegisterList()) is
 // used as a pool of scratch registers. These registers can be allocated on
 // demand, and will be returned at the end of the scope.
 //
@@ -3821,14 +3825,14 @@ class UseScratchRegisterScope {
   // must not be `NULL`), so it is ready to use immediately after it has been
   // constructed.
   explicit UseScratchRegisterScope(MacroAssembler* masm)
-      : masm_(NULL), parent_(NULL), old_available_(0), old_availablefp_(0) {
+      : masm_(NULL), parent_(NULL), old_available_(0), old_available_v_(0) {
     Open(masm);
   }
   // This constructor does not implicitly initialise the scope. Instead, the
   // user is required to explicitly call the `Open` function before using the
   // scope.
   UseScratchRegisterScope()
-      : masm_(NULL), parent_(NULL), old_available_(0), old_availablefp_(0) {}
+      : masm_(NULL), parent_(NULL), old_available_(0), old_available_v_(0) {}
 
   // This function performs the actual initialisation work.
   void Open(MacroAssembler* masm);
@@ -3853,13 +3857,13 @@ class UseScratchRegisterScope {
     return AcquireNextAvailable(masm_->GetScratchRegisterList()).X();
   }
   VRegister AcquireH() {
-    return AcquireNextAvailable(masm_->GetScratchFPRegisterList()).H();
+    return AcquireNextAvailable(masm_->GetScratchVRegisterList()).H();
   }
   VRegister AcquireS() {
-    return AcquireNextAvailable(masm_->GetScratchFPRegisterList()).S();
+    return AcquireNextAvailable(masm_->GetScratchVRegisterList()).S();
   }
   VRegister AcquireD() {
-    return AcquireNextAvailable(masm_->GetScratchFPRegisterList()).D();
+    return AcquireNextAvailable(masm_->GetScratchVRegisterList()).D();
   }
 
 
@@ -3936,13 +3940,14 @@ class UseScratchRegisterScope {
 
   // The state of the available lists at the start of this scope.
   RegList old_available_;    // kRegister
-  RegList old_availablefp_;  // kVRegister
+  RegList old_available_v_;  // kVRegister
 
   // Disallow copy constructor and operator=.
-  VIXL_DEBUG_NO_RETURN UseScratchRegisterScope(const UseScratchRegisterScope&) {
+  VIXL_NO_RETURN_IN_DEBUG_MODE UseScratchRegisterScope(
+      const UseScratchRegisterScope&) {
     VIXL_UNREACHABLE();
   }
-  VIXL_DEBUG_NO_RETURN void operator=(const UseScratchRegisterScope&) {
+  VIXL_NO_RETURN_IN_DEBUG_MODE void operator=(const UseScratchRegisterScope&) {
     VIXL_UNREACHABLE();
   }
 };

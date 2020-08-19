@@ -20,8 +20,8 @@ FIELD(negate, 24, 24)
 //exception
 FIELD(exp_gen_ll, 0, 1)
 //system
-FIELD(system_register, 5, 19) // System register?
-FIELD(o0, 19, 19) // System register?
+FIELD(system_register, 5, 20) // System register?
+FIELD(o0, 19, 20) // System register?
 FIELD(op1, 16, 18) // System register?
 FIELD(CRn, 12, 15) // System register?
 FIELD(CRm, 8, 11) // System register? Also used for barriers

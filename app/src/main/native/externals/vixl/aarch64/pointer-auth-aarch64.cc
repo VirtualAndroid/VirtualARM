@@ -24,8 +24,6 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#ifdef VIXL_INCLUDE_SIMULATOR_AARCH64
-
 #include "simulator-aarch64.h"
 
 #include "utils-vixl.h"
@@ -193,5 +191,3 @@ uint64_t Simulator::StripPAC(uint64_t ptr, PointerType type) {
 }
 }  // namespace aarch64
 }  // namespace vixl
-
-#endif  // VIXL_INCLUDE_SIMULATOR_AARCH64

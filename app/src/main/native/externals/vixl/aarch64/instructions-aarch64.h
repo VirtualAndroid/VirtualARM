@@ -492,6 +492,22 @@ class Instruction {
 
     return address;
   }
+
+  template <typename T>
+  T GetLiteralAddress(uint64_t base_raw) const {
+      int64_t offset = GetImmLLiteral() * static_cast<int>(kLiteralEntrySize);
+      uint64_t address_raw = base_raw + offset;
+
+      // Cast the address using a C-style cast. A reinterpret_cast would be
+      // appropriate, but it can't cast one integral type to another.
+      T address = (T)(address_raw);
+
+      // Assert that the address can be represented by the specified type.
+      VIXL_ASSERT((uint64_t)(address) == address_raw);
+
+      return address;
+  }
+
   template <typename T>
   VIXL_DEPRECATED("GetLiteralAddress", T LiteralAddress() const) {
     return GetLiteralAddress<T>();

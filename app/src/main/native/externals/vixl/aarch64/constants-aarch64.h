@@ -34,11 +34,11 @@ namespace aarch64 {
 
 const unsigned kNumberOfRegisters = 32;
 const unsigned kNumberOfVRegisters = 32;
-const unsigned kNumberOfFPRegisters = kNumberOfVRegisters;
 // Callee saved registers are x21-x30(lr).
 const int kNumberOfCalleeSavedRegisters = 10;
 const int kFirstCalleeSavedRegisterIndex = 21;
-// Callee saved FP registers are d8-d15.
+// Callee saved FP registers are d8-d15. Note that the high parts of v8-v15 are
+// still caller-saved.
 const int kNumberOfCalleeSavedFPRegisters = 8;
 const int kFirstCalleeSavedFPRegisterIndex = 8;
 
@@ -235,7 +235,7 @@ enum Condition {
 
   // Aliases.
   hs = cs,  // C set            Unsigned higher or same.
-  lo = cc,   // C clear          Unsigned lower.
+  lo = cc   // C clear          Unsigned lower.
 };
 
 inline Condition InvertCondition(Condition cond) {
@@ -401,11 +401,12 @@ class SystemRegisterEncoder {
 // multiple fields (Op0, Op1, Crn, Crm, Op2).
 enum SystemRegister {
   NZCV = SystemRegisterEncoder<3, 3, 4, 2, 0>::value,
+  TPIDR_EL0 = SystemRegisterEncoder<3, 3, 13, 0, 2>::value,
+  TPIDRRO_EL0 = SystemRegisterEncoder<3, 3, 13, 0, 3>::value,
   FPCR = SystemRegisterEncoder<3, 3, 4, 4, 0>::value,
   FPSR = SystemRegisterEncoder<3, 3, 4, 4, 1>::value,
   RNDR = SystemRegisterEncoder<3, 3, 2, 4, 0>::value,    // Random number.
-  RNDRRS = SystemRegisterEncoder<3, 3, 2, 4, 1>::value,   // Reseeded random number.
-  TPIDR_EL0 = SystemRegisterEncoder<3, 3, 13, 0, 2>::value,
+  RNDRRS = SystemRegisterEncoder<3, 3, 2, 4, 1>::value   // Reseeded random number.
 };
 
 template<int op1, int crn, int crm, int op2>
@@ -1451,6 +1452,18 @@ enum FPDataProcessing1SourceOp {
   FCVT_hd  = FPDataProcessing1SourceFixed | FP64 | 0x00038000,
   FCVT_sh  = FPDataProcessing1SourceFixed | 0x00C20000,
   FCVT_dh  = FPDataProcessing1SourceFixed | 0x00C28000,
+  FRINT32X_s = FPDataProcessing1SourceFixed | 0x00088000,
+  FRINT32X_d = FPDataProcessing1SourceFixed | FP64 | 0x00088000,
+  FRINT32X = FRINT32X_s,
+  FRINT32Z_s = FPDataProcessing1SourceFixed | 0x00080000,
+  FRINT32Z_d = FPDataProcessing1SourceFixed | FP64 | 0x00080000,
+  FRINT32Z = FRINT32Z_s,
+  FRINT64X_s = FPDataProcessing1SourceFixed | 0x00098000,
+  FRINT64X_d = FPDataProcessing1SourceFixed | FP64 | 0x00098000,
+  FRINT64X = FRINT64X_s,
+  FRINT64Z_s = FPDataProcessing1SourceFixed | 0x00090000,
+  FRINT64Z_d = FPDataProcessing1SourceFixed | FP64 | 0x00090000,
+  FRINT64Z = FRINT64Z_s,
   FRINTN_h = FPDataProcessing1SourceFixed | FP16 | 0x00040000,
   FRINTN_s = FPDataProcessing1SourceFixed | 0x00040000,
   FRINTN_d = FPDataProcessing1SourceFixed | FP64 | 0x00040000,
@@ -1746,6 +1759,10 @@ enum NEON2RegMiscOp {
   NEON_FCVTN  = NEON2RegMiscFixed | 0x00016000,
   NEON_FCVTXN = NEON2RegMiscFixed | 0x20016000,
   NEON_FCVTL  = NEON2RegMiscFixed | 0x00017000,
+  NEON_FRINT32X = NEON2RegMiscFixed | 0x2001E000,
+  NEON_FRINT32Z = NEON2RegMiscFixed | 0x0001E000,
+  NEON_FRINT64X = NEON2RegMiscFixed | 0x2001F000,
+  NEON_FRINT64Z = NEON2RegMiscFixed | 0x0001F000,
   NEON_FRINTN = NEON2RegMiscFixed | 0x00018000,
   NEON_FRINTA = NEON2RegMiscFixed | 0x20018000,
   NEON_FRINTP = NEON2RegMiscFixed | 0x00818000,
