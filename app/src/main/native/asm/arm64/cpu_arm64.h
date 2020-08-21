@@ -67,6 +67,7 @@ namespace CPU::A64 {
     };
 
     typedef union {
+        u128 V;
         u64 Q;
         u64 D[2];
         u32 S[4];
@@ -87,10 +88,7 @@ namespace CPU::A64 {
     } Reg;
 
     struct PSTATE {
-        bool N; // Negative
-        bool Z; // Zero
-        bool C; // Carry
-        bool V; // Overflow
+        u32 NZCV;
         int SS;
         int IL;
         int nRW;
@@ -103,6 +101,24 @@ namespace CPU::A64 {
     struct VirtualTLB {
         VAddr vaddr;
         VAddr target;
+    };
+
+    #pragma pack(8)
+    struct ContextSwitcher {
+        enum Reason : u32 {
+            Svc,
+            Hvc,
+            Brk,
+            ErrorInstr,
+            PageFatal
+        };
+        Reason reason;
+        union {
+            u64 data;
+            u16 exception;
+            u32 error_instr;
+            u64 fatal_addr;
+        };
     };
 
     struct CPUContext {
@@ -124,18 +140,19 @@ namespace CPU::A64 {
         // dispatcher
         VAddr dispatcher_table;
         // flags
-        VAddr suspend_flag;
+        u64 suspend_flag;
         // help fields
         u64 forward;
         u64 forward_ext;
-        u64 tmp_lr;
-        u64 tmp_pc;
+        VAddr context_ptr;
+        ContextSwitcher ctx_switch;
     };
 }
 
 extern "C" const VAddr OFFSET_CTX_A64_CPU_REG;
 extern "C" const VAddr OFFSET_CTX_A64_SP;
 extern "C" const VAddr OFFSET_CTX_A64_PC;
+extern "C" const VAddr OFFSET_CTX_A64_LR;
 extern "C" const VAddr OFFSET_CTX_A64_PSTATE;
 extern "C" const VAddr OFFSET_CTX_A64_VEC_REG;
 extern "C" const VAddr OFFSET_CTX_A64_FPCR;
@@ -149,7 +166,7 @@ extern "C" const VAddr OFFSET_CTX_A64_TLB;
 extern "C" const VAddr OFFSET_CTX_A64_PAGE_TABLE;
 extern "C" const VAddr OFFSET_CTX_A64_SUSPEND_ADDR;
 extern "C" const VAddr OFFSET_CTX_A64_DISPATCHER_TABLE;
-extern "C" const VAddr OFFSET_CTX_A64_TMP_LR;
+extern "C" const VAddr OFFSET_CTX_A64_HOST_LR;
 extern "C" const VAddr OFFSET_CTX_A64_SVC_NUM;
 extern "C" const VAddr OFFSET_CTX_A64_HOST_SP;
 extern "C" const VAddr OFFSET_CTX_A64_TMP_PC;

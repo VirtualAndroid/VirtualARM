@@ -738,6 +738,9 @@ void MacroAssembler::BindToOffset(Label* label, ptrdiff_t offset) {
   Assembler::BindToOffset(label, offset);
 }
 
+void MacroAssembler::Emit(Instr instr) {
+  GetBuffer()->Emit(instr);
+}
 
 void MacroAssembler::And(const Register& rd,
                          const Register& rn,

@@ -4,6 +4,7 @@
 
 #include <sys/mman.h>
 #include "host_code_block.h"
+#include "platform/memory.h"
 
 using namespace CodeCache;
 
@@ -66,22 +67,13 @@ VAddr BaseBlock::Base() {
     return start_;
 }
 
-
-static VAddr MapCodeMemory(u32 size) {
-    return reinterpret_cast<VAddr>(mmap(0, size, PROT_READ | PROT_WRITE | PROT_EXEC,
-                                        MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED,
-                                        -1, 0));
-}
-
-static void UnMapCodeMemory(VAddr start, u32 size) {
-    munmap(reinterpret_cast<void *>(start), size);
-}
-
 A64::CodeBlock::CodeBlock(u32 forward_reg_rec_size, u32 block_size) : BaseBlock(
-        MapCodeMemory(block_size), block_size), forward_reg_rec_size_(forward_reg_rec_size) {
+        reinterpret_cast<VAddr>(Platform::MapExecutableMemory(block_size)), block_size),
+                                                                      forward_reg_rec_size_(
+                                                                              forward_reg_rec_size) {
     // init block base
     assert(Base() % PAGE_SIZE == 0);
-    module_base_ = reinterpret_cast<VAddr*>(Base());
+    module_base_ = reinterpret_cast<VAddr *>(Base());
     // init dispatcher table
     dispatcher_count_ = std::min<u32>(block_size >> 8, UINT16_MAX);
     dispatcher_table_ = reinterpret_cast<DispatcherTable *>(start_ + sizeof(VAddr));
@@ -89,7 +81,7 @@ A64::CodeBlock::CodeBlock(u32 forward_reg_rec_size, u32 block_size) : BaseBlock(
 }
 
 A64::CodeBlock::~CodeBlock() {
-    UnMapCodeMemory(start_, size_);
+    Platform::UnMapExecutableMemory(start_, size_);
 }
 
 void A64::CodeBlock::GenDispatcher(Buffer &buffer) {

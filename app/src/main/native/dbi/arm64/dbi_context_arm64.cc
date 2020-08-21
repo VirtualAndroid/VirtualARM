@@ -259,7 +259,7 @@ void Context::FindForwardTarget(u8 reg_target) {
         __ Cbz(tmp[0], miss_target);
         __ And(tmp[1], rt, (CODE_CACHE_HASH_SIZE - CODE_CACHE_HASH_OVERP) << 2);
         // 2 + 2 = 4 = 16字节 = Entry 大小
-        __ Adds(tmp[0], tmp[0], Operand(tmp[1], LSL, 2));
+        __ Add(tmp[0], tmp[0], Operand(tmp[1], LSL, 2));
         __ Bind(label_loop);
         __ Ldr(tmp[1], MemOperand(tmp[0], 16, PostIndex));
         __ Cbz(tmp[1], miss_target);
@@ -322,7 +322,7 @@ void Context::SaveContextFull(bool protect_lr) {
         }
         // lr
         if (reg_ctx_.GetCode() != 30) {
-            __ Str(x30, MemOperand(reg_ctx_, protect_lr ? 8 * 30 : OFFSET_CTX_A64_TMP_LR));
+            __ Str(x30, MemOperand(reg_ctx_, protect_lr ? 8 * 30 : OFFSET_CTX_A64_HOST_LR));
         }
         // Sysregs
         __ Mrs(tmp[0].W(), NZCV);
@@ -367,7 +367,7 @@ void Context::RestoreContextFull(bool protect_lr) {
         }
         // lr
         if (reg_ctx_.GetCode() != 30) {
-            __ Ldr(x30, MemOperand(reg_ctx_, protect_lr ? 8 * 30 : OFFSET_CTX_A64_TMP_LR));
+            __ Ldr(x30, MemOperand(reg_ctx_, protect_lr ? 8 * 30 : OFFSET_CTX_A64_HOST_LR));
         }
         // Sysregs
         __ Ldr(tmp[0].W(), MemOperand(reg_ctx_, OFFSET_CTX_A64_PSTATE));
@@ -408,7 +408,7 @@ void Context::SaveContextCallerSaved(bool protect_lr) {
         }
         // lr
         if (reg_ctx_.GetCode() != 30) {
-            __ Str(LR, MemOperand(reg_ctx_, protect_lr ? 8 * 30 : OFFSET_CTX_A64_TMP_LR));
+            __ Str(LR, MemOperand(reg_ctx_, protect_lr ? 8 * 30 : OFFSET_CTX_A64_HOST_LR));
         }
         // Sysregs
         __ Mrs(tmp[0].W(), NZCV);
@@ -451,7 +451,7 @@ void Context::RestoreContextCallerSaved(bool protect_lr) {
         }
         // lr
         if (reg_ctx_.GetCode() != 30) {
-            __ Ldr(x30, MemOperand(reg_ctx_, protect_lr ? 8 * 30 : OFFSET_CTX_A64_TMP_LR));
+            __ Ldr(x30, MemOperand(reg_ctx_, protect_lr ? 8 * 30 : OFFSET_CTX_A64_HOST_LR));
         }
         // Sysregs
         __ Ldr(tmp[0].W(), MemOperand(reg_ctx_, OFFSET_CTX_A64_PSTATE));

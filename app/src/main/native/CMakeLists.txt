@@ -35,18 +35,22 @@ add_library(virtual_arm SHARED
         backend/arm64/trampoline_a64.cc
         backend/arm64/trampoline.S
         backend/ir/interpreter_ir.cc
-        block/code_block.cc
         dbi/arm64/dbi_arm64.cc
-        dbi/arm64/dbi_jit_arm64.cc
-        dbi/arm64/dbi_context_arm64.cc
+#        dbi/arm64/dbi_jit_arm64.cc
+#        dbi/arm64/dbi_context_arm64.cc
         dbi/arm64/dbi_mmu_arm64.cpp
-        dbi/arm64/dbi_trampolines_arm64.cc
+#        dbi/arm64/dbi_trampolines_arm64.cc
         dbi/arm64/dbi_diskcache_loader.cc
         dbi/arm64/context_new.cc
+        dbi/arm64/dbi_global_stubs.cc
+        dbi/arm64/decode/decode_vixl.cc
         block/host_code_block.cpp
         block/code_find_table.cc
+        block/module.cc
+        block/code_block.cc
         memory/mmu.cc
         memory/tlb.cc
+        platform/memory.cc
 )
 
 

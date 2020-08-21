@@ -646,6 +646,7 @@ class MacroAssembler : public Assembler, public MacroAssemblerInterface {
                                           const Register& dst,
                                           uint64_t imm);
 
+  void Emit(Instr instr);
 
   // Logical macros.
   void And(const Register& rd, const Register& rn, const Operand& operand);

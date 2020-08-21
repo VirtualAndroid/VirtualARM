@@ -77,10 +77,11 @@ namespace Memory {
                                                                     , page_mask_(page_size_ - 1) {
             pte_bits_ = addr_width_ - page_bits_;
             if (pte_bits_ >= 48 && pte_bits_ % 3 == 0) {
-                // 3级页表
                 level_ = 3;
-            } else {
+            } else if (pte_bits_ >= 36 && pte_bits_ % 2 == 0) {
                 level_ = 2;
+            } else {
+                level_ = 1;
             }
             assert(pte_bits_ % level_ == 0);
             pte_bits_ /= level_;

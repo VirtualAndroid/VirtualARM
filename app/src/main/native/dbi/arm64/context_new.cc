@@ -3,6 +3,7 @@
 //
 
 #include "context_new.h"
+#include "dbi_arm64.h"
 
 using namespace DBI::A64;
 
@@ -26,13 +27,17 @@ void RegisterAllocator::ClearContext() {
 const Register &RegisterAllocator::AcquireTempX() {
     for (int i = 0; i < 31; ++i) {
         if (!in_used_[i]) {
-            return XRegister::GetXRegFromCode(i);
+            auto &res = XRegister::GetXRegFromCode(i);
+            context_->Push(res);
+            MarkInUsed(res);
+            return res;
         }
     }
 }
 
-const Register &RegisterAllocator::ReleaseTempX(const Register &x) {
-    return x0;
+void RegisterAllocator::ReleaseTempX(const Register &x) {
+    MarkInUsed(x, false);
+    context_->Pop(x);
 }
 
 void RegisterAllocator::MarkInUsed(const Register &x, bool in_used) {
@@ -45,6 +50,67 @@ bool RegisterAllocator::InUsed(const Register &x) {
 
 void RegisterAllocator::Reset() {
     std::memset(reinterpret_cast<void *>(in_used_[0]), 0, sizeof(in_used_));
+}
+
+LabelAllocator::LabelAllocator(MacroAssembler &masm) : masm_(masm) {
+    Reset();
+}
+
+LabelAllocator::~LabelAllocator() {
+    for (auto label : labels_) {
+        delete label;
+    }
+}
+
+void LabelAllocator::SetDestBuffer(VAddr addr) {
+    dest_buffer_start_ = addr;
+}
+
+void LabelAllocator::Reset() {
+    for (auto label : labels_) {
+        delete label;
+    }
+    labels_.clear();
+    dest_buffer_start_ = 0;
+    dispatcher_label_ = AllocLabel();
+    page_lookup_label_ = AllocLabel();
+    map_address_label_ = AllocLabel();
+}
+
+Label *LabelAllocator::AllocLabel() {
+    auto label = new Label();
+    labels_.push_back(label);
+    return label;
+}
+
+Label *LabelAllocator::GetDispatcherLabel() {
+    return dispatcher_label_;
+}
+
+Label *LabelAllocator::GetPageLookupLabel() {
+    return page_lookup_label_;
+}
+
+Label *LabelAllocator::GetMapAddressLabel() {
+    return map_address_label_;
+}
+
+void LabelAllocator::BindDispatcherTrampoline(VAddr addr) {
+    assert(dest_buffer_start_);
+    ptrdiff_t offset = addr - dest_buffer_start_;
+    __ BindToOffset(dispatcher_label_, offset);
+}
+
+void LabelAllocator::BindPageLookupTrampoline(VAddr addr) {
+    assert(dest_buffer_start_);
+    ptrdiff_t offset = addr - dest_buffer_start_;
+    __ BindToOffset(page_lookup_label_, offset);
+}
+
+void LabelAllocator::BindMapAddress(VAddr addr) {
+    assert(dest_buffer_start_);
+    ptrdiff_t offset = addr - dest_buffer_start_;
+    __ BindToOffset(map_address_label_, offset);
 }
 
 void BaseContext::Set(const Register &x, u64 value) {
@@ -101,13 +167,14 @@ void BaseContext::Pop(const Register &reg) {
         __ Mov(reg, tmp);
         register_alloc_.ReleaseTempX(tmp);
     } else {
-        __ Ldr(reg, MemOperand(register_alloc_.ContextPtr(), OFFSET_CTX_A64_VEC_REG + 16 * reg.GetCode()));
+        __ Ldr(reg, MemOperand(register_alloc_.ContextPtr(),
+                               OFFSET_CTX_A64_VEC_REG + 16 * reg.GetCode()));
     }
 }
 
-void BaseContext::MarkPC(u64 value) {
+void BaseContext::MarkPC() {
     auto tmp = register_alloc_.AcquireTempX();
-    __ Mov(tmp, value);
+    __ Mov(tmp, PC());
     __ Str(tmp, MemOperand(register_alloc_.ContextPtr(), OFFSET_CTX_A64_PC));
     register_alloc_.ReleaseTempX(tmp);
 }
@@ -125,8 +192,8 @@ void BaseContext::Push(const Register &reg1, const Register &reg2) {
 
 void BaseContext::Pop(const Register &reg1, const Register &reg2) {
     if ((reg2.GetCode() - reg1.GetCode() == 1)
-            && (!reg1.IsSP() && !reg2.IsSP())
-            && (!register_alloc_.InUsed(reg1) && !register_alloc_.InUsed(reg2))) {
+        && (!reg1.IsSP() && !reg2.IsSP())
+        && (!register_alloc_.InUsed(reg1) && !register_alloc_.InUsed(reg2))) {
         __ Ldp(reg1, reg2, MemOperand(register_alloc_.ContextPtr(), 8 * reg1.GetCode()));
     } else {
         Pop(reg1);
@@ -155,11 +222,6 @@ void BaseContext::SaveContext() {
     // Prepare host SP
     __ Ldr(tmp, MemOperand(reg_ctx, OFFSET_CTX_A64_HOST_SP));
     __ Mov(sp, tmp);
-    // Protect Pc
-    // Pc could be changed by host
-    // dispatch if changed
-    __ Ldr(tmp, MemOperand(reg_ctx, OFFSET_CTX_A64_PC));
-    __ Str(tmp, MemOperand(reg_ctx, OFFSET_CTX_A64_TMP_PC));
     // VRegs
     __ Add(tmp, reg_ctx, OFFSET_CTX_A64_VEC_REG);
     for (int i = 0; i < 32; i += 2) {
@@ -190,11 +252,6 @@ void BaseContext::LoadContext() {
     // Prepare host SP
     __ Ldr(tmp, MemOperand(reg_ctx, OFFSET_CTX_A64_HOST_SP));
     __ Mov(sp, tmp);
-    // Protect Pc
-    // Pc could be changed by host
-    // dispatch if changed
-    __ Ldr(tmp, MemOperand(reg_ctx, OFFSET_CTX_A64_PC));
-    __ Str(tmp, MemOperand(reg_ctx, OFFSET_CTX_A64_TMP_PC));
     // VRegs
     __ Add(tmp, reg_ctx, OFFSET_CTX_A64_VEC_REG);
     for (int i = 0; i < 32; i += 2) {
@@ -203,8 +260,80 @@ void BaseContext::LoadContext() {
     }
 }
 
+void BaseContext::Forward(VAddr addr) {
+
+}
+
+void BaseContext::Forward(const Register &target) {
+
+}
+
+void BaseContext::AddTicks(u64 ticks) {
+
+}
+
+void BaseContext::Terminal(bool check_suspend) {
+    MarkPC();
+    AddTicks(current_block_ticks_);
+}
+
+VAddr BaseContext::PC() const {
+    return reinterpret_cast<VAddr>(pc_);
+}
+
+MacroAssembler &BaseContext::Assembler() {
+    return masm_;
+}
+
+RegisterAllocator &BaseContext::GetRegisterAlloc() {
+    return register_alloc_;
+}
+
+LabelAllocator &BaseContext::GetLabelAlloc() {
+    return label_allocator_;
+}
+
+void BaseContext::EndBlock() {
+    __ Reset();
+    register_alloc_.Reset();
+    label_allocator_.Reset();
+}
+
+Instructions::A64::AArch64Inst *BaseContext::Instr() {
+    return pc_;
+}
+
+const Instance &BaseContext::GetInstance() const {
+    return *instance_;
+}
+
+void BaseContext::ToContextSwitch(const ContextSwitcher &switcher) {
+    Terminal();
+    auto reg_ctx = register_alloc_.ContextPtr();
+    auto tmp = register_alloc_.AcquireTempX();
+    __ Mov(tmp, switcher.reason);
+    __ Str(tmp.W(), MemOperand(reg_ctx, OFFSET_OF(CPUContext, ctx_switch.reason)));
+    __ Mov(tmp, switcher.data);
+    __ Str(tmp, MemOperand(reg_ctx, OFFSET_OF(CPUContext, ctx_switch.data)));
+    register_alloc_.ReleaseTempX(tmp);
+    Push(reg_forward_);
+    __ Mov(reg_forward_, instance_->GetGlobalStubs()->GetFullSwitchGuestToHost());
+    __ Br(reg_forward_);
+    EndBlock();
+}
+
+BaseContext::BaseContext(const SharedPtr<Instance> &instance) : instance_{instance}, reg_ctx_{
+        XRegister::GetXRegFromCode(instance->GetContextConfig().context_reg)}, reg_forward_{
+        XRegister::GetXRegFromCode(instance->GetContextConfig().forward_reg)} {
+
+}
+
+QuickContext::QuickContext(const SharedPtr<Instance> &instance) : BaseContext(instance) {
+
+}
+
 const Register &QuickContext::LoadContextPtr() {
-    const auto &context_reg = x17;
+    const auto &context_reg = reg_ctx_;
     __ Push(context_reg);
     __ Mrs(context_reg, TPIDR_EL0);
     __ Ldr(context_reg, MemOperand(context_reg, CTX_TLS_SLOT * 8));
@@ -224,3 +353,38 @@ void QuickContext::ClearContextPtr(const Register &context) {
 }
 
 #undef __
+
+RegisterGuard::RegisterGuard(const ContextA64 &context, const Register &target) : context_(context),
+                                                                                  target_(target) {
+    auto &reg_allocator = context->GetRegisterAlloc();
+    use_tmp = reg_allocator.InUsed(target);
+    if (use_tmp) {
+        tmp = reg_allocator.AcquireTempX();
+        context_->Assembler().Ldr(tmp,
+                                  MemOperand(reg_allocator.ContextPtr(), target_.GetCode() * 8));
+    }
+}
+
+RegisterGuard::~RegisterGuard() {
+    if (use_tmp) {
+        auto &reg_allocator = context_->GetRegisterAlloc();
+        // if dirty, need write back
+        if (dirty) {
+            context_->Assembler().Str(tmp, MemOperand(reg_allocator.ContextPtr(),
+                                                      target_.GetCode() * 8));
+        }
+        reg_allocator.ReleaseTempX(tmp);
+    }
+}
+
+void RegisterGuard::Dirty() {
+    dirty = true;
+}
+
+const Register &RegisterGuard::Target() const {
+    if (use_tmp) {
+        return tmp;
+    } else {
+        return target_;
+    }
+}

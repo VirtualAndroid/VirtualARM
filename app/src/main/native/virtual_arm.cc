@@ -3,6 +3,7 @@
 //
 
 #include <jni.h>
+#include <dlfcn.h>
 #include "virtual_arm.h"
 #include "asm/arm64/instruction_decode.h"
 #include "asm/arm64/cpu_arm64.h"
