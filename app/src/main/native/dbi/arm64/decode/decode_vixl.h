@@ -5,7 +5,7 @@
 #pragma once
 
 #include <aarch64/macro-assembler-aarch64.h>
-#include <dbi/arm64/context_new.h>
+#include <dbi/arm64/dbi_jit_context.h>
 
 namespace Decode::A64 {
 
@@ -33,7 +33,7 @@ namespace Decode::A64 {
 #undef DECLARE
 
     private:
-        DBI::A64::ContextA64 context_;
+        Jit::ContextA64 context_;
     };
 
 }

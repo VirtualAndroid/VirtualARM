@@ -13,18 +13,21 @@
 #include "block/host_code_block.h"
 
 using namespace vixl::aarch64;
-using namespace CodeCache;
-using namespace CodeCache::A64;
+using namespace Jit::A64;
 using namespace CPU::A64;
+using namespace DBI::A64;
 
 #define CTX_TLS_SLOT 7
 
 namespace DBI::A64 {
-    class BaseContext;
-
-    class RegisterAllocator;
-
     class Instance;
+    class GlobalStubs;
+}
+
+namespace Jit {
+
+    class JitContext;
+    class RegisterAllocator;
 
     class RegisterAllocator {
     public:
@@ -44,7 +47,7 @@ namespace DBI::A64 {
 
     private:
         bool in_used_[32]{false};
-        BaseContext *context_;
+        JitContext *context_;
         Register *context_ptr_;
     };
 
@@ -82,13 +85,39 @@ namespace DBI::A64 {
         Label *map_address_label_;
     };
 
-    class BaseContext : public BaseObject {
+    class VirtualAddress final {
     public:
-        BaseContext(const SharedPtr<DBI::A64::Instance> &instance);
+        constexpr VirtualAddress(const Register &rt) : rt_{rt}, vaddr_(0), const_addr_{false} {};
+        constexpr VirtualAddress(const VAddr &vaddr) : rt_{x0}, vaddr_(vaddr), const_addr_{true} {};
+
+        const bool ConstAddress() const {
+            return const_addr_;
+        }
+
+        const VAddr Address() const {
+            return vaddr_;
+        }
+
+        const Register &VARegister() const {
+            return rt_;
+        }
+    private:
+        const Register &rt_;
+        const VAddr vaddr_;
+        const bool const_addr_;
+    };
+
+    class JitContext : public BaseObject {
+    public:
+        JitContext(const SharedPtr<DBI::A64::Instance> &instance);
 
         virtual const Register &LoadContextPtr() = 0;
 
         virtual void ClearContextPtr(const Register &context) = 0;
+
+        const Register &GetXRegister(u8 code, bool may_sp = false);
+
+        const VRegister &GetVRegister(u8 code);
 
         void Set(const Register &x, u64 value);
 
@@ -106,15 +135,17 @@ namespace DBI::A64 {
 
         void LoadContext();
 
+        void MarkReturn();
+
         void Terminal(bool check_suspend = false);
 
         void Forward(VAddr addr);
 
         void Forward(const Register &target);
 
-        void ToContextSwitch(const ContextSwitcher &switcher);
+        void Interrupt(const InterruptHelp &interrupt);
 
-        virtual void LookupPageTable(const Register &rt) {};
+        virtual void LookupPageTable(const Register &rt, const VirtualAddress &va, bool write = false) {};
 
         void EndBlock();
 
@@ -133,7 +164,7 @@ namespace DBI::A64 {
     protected:
         void MarkPC();
 
-        void AddTicks(u64 ticks);
+        void AddTicks(u64 ticks, bool check_remain = true);
 
         SharedPtr<Instance> instance_;
         const Register &reg_ctx_;
@@ -143,20 +174,37 @@ namespace DBI::A64 {
         MacroAssembler masm_{PositionIndependentCode};
         LabelAllocator label_allocator_{masm_};
         SharedPtr<FindTable<VAddr>> code_find_table_;
+        SharedPtr<GlobalStubs> global_stubs_;
         Instructions::A64::AArch64Inst *pc_;
         size_t current_block_ticks_;
     };
 
-    class QuickContext : public BaseContext {
+    class QuickContext : public JitContext {
     public:
-        QuickContext(const SharedPtr<DBI::A64::Instance> &instance);
+        QuickContext(const SharedPtr<Instance> &instance);
 
         const Register &LoadContextPtr() override;
 
         void ClearContextPtr(const Register &context) override;
     };
 
-    using ContextA64 = SharedPtr<BaseContext>;
+    class ContextWithMmu : public JitContext {
+    public:
+        ContextWithMmu(const SharedPtr<Instance> &instance, SharedPtr<A64MMU> mmu);
+
+        void LookupPageTable(const Register &rt, const VirtualAddress &va, bool write) override;
+
+    private:
+
+        void LookupTLB(const Register &rt, const VirtualAddress &va, Label *miss_cache);
+
+        u8 address_bits_unused_;
+        u8 page_bits_;
+        u8 tlb_bits_;
+        SharedPtr<A64MMU> mmu_;
+    };
+
+    using ContextA64 = SharedPtr<JitContext>;
 
     class RegisterGuard {
     public:

@@ -7,7 +7,7 @@
 #include <base/marcos.h>
 #include <map>
 
-namespace CodeCache {
+namespace Jit {
 
 #define MAX_BUFFER UINT16_MAX
 #define MAX_BLOCK_BIT 26

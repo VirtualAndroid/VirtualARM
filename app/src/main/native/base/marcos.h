@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <mutex>
 #include <array>
+#include <atomic>
 #include "compiler.h"
 #include <boost/smart_ptr/intrusive_ptr.hpp>
 
@@ -343,3 +344,41 @@ template <typename Function>
 using equivalent_function_type_t = typename FunctionInfo<Function>::equivalent_function_type;
 
 void ClearCachePlatform(VAddr start, VAddr size);
+
+class NonCopyable {
+protected:
+    constexpr NonCopyable() = default;
+    ~NonCopyable() = default;
+
+    NonCopyable(const NonCopyable&) = delete;
+    NonCopyable& operator=(const NonCopyable&) = delete;
+};
+
+class SpinMutex {
+    std::atomic<bool> flag = ATOMIC_VAR_INIT(false);
+public:
+    SpinMutex() = default;
+    void Lock() {
+        bool expected = false;
+        while(!flag.compare_exchange_strong(expected, true))
+            expected = false;
+    }
+    void Unlock() {
+        flag.store(false);
+    }
+    bool TryLock() {
+        return flag;
+    }
+};
+
+class SpinLockGuard {
+public:
+    SpinLockGuard(SpinMutex &mutex);
+    ~SpinLockGuard();
+    void Lock();
+    void Unlock();
+private:
+    SpinLockGuard(SpinLockGuard const&) = delete;
+    SpinLockGuard& operator=(SpinLockGuard const&) = delete;
+    SpinMutex &mutex_;
+};

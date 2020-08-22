@@ -31,25 +31,30 @@ namespace DBI::A64 {
 
         VAddr GetAbiSwitchGuestToHost() const;
 
-        VAddr GetForwardCodeCacheLookup() const;
+        VAddr GetForwardCodeCache() const;
 
     private:
 
         void FullSaveContext(MacroAssembler &masm_, Register& tmp);
         void FullRestoreContext(MacroAssembler &masm_, Register& tmp);
+        void ABISaveContext(MacroAssembler &masm_, Register& tmp);
+        void ABIRestoreContext(MacroAssembler &masm_, Register& tmp);
 
         void BuildFullSwitchGuestToHost();
         void BuildFullSwitchHostToGuest();
-        void BuildForwardCodeCacheLookup();
+        void BuildABISwitchGuestToHost();
+        void BuildABISwitchHostToGuest();
+        void BuildForwardCodeCache();
 
-        static CPU::A64::CPUContext *FullSwitchStub(CPU::A64::CPUContext *context);
+        static CPU::A64::CPUContext *InterruptStub(CPU::A64::CPUContext *context);
+        static CPU::A64::CPUContext *ABIStub(CPU::A64::CPUContext *context);
         static CPU::A64::CPUContext *CodeCacheMissStub(CPU::A64::CPUContext *context);
 
         VAddr full_switch_host_to_guest_;
         VAddr full_switch_guest_to_host_;
-        VAddr abi_host_to_guest_;
+        VAddr abi_switch_host_to_guest_;
         VAddr abi_switch_guest_to_host_;
-        VAddr forward_code_cache_lookup_;
+        VAddr forward_code_cache_;
         SharedPtr<Instance> instance_;
         const Register &context_reg_;
         const Register &forward_reg_;

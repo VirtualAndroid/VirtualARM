@@ -70,6 +70,15 @@ class CPURegister {
   }
   VIXL_DEPRECATED("GetCode", unsigned code() const) { return GetCode(); }
 
+  unsigned RealCode() const {
+      VIXL_ASSERT(IsValid());
+      if (IsSP()) {
+        return 31;
+      }
+      return code_;
+  }
+  VIXL_DEPRECATED("RealCode", unsigned real_code() const) { return RealCode(); }
+
   RegisterType GetType() const {
     VIXL_ASSERT(IsValidOrNone());
     return type_;

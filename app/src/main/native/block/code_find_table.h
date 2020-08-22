@@ -11,7 +11,7 @@
 using namespace Utils;
 
 // 页表 + Hash 表
-namespace CodeCache {
+namespace Jit {
 
     template <typename AddrType>
     class FindTable : public BaseObject {

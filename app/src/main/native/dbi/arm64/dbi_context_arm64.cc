@@ -154,29 +154,29 @@ Label *Context::Label() {
 }
 
 void Context::PushX(Register reg1, Register reg2) {
-    assert(reg1.GetCode() != reg_ctx_.GetCode() && reg2.GetCode() != reg_ctx_.GetCode());
-    if (reg2.GetCode() == NoReg.GetCode()) {
-        __ Str(reg1, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + reg1.GetCode() * 8));
+    assert(reg1.RealCode() != reg_ctx_.RealCode() && reg2.RealCode() != reg_ctx_.RealCode());
+    if (reg2.RealCode() == NoReg.RealCode()) {
+        __ Str(reg1, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + reg1.RealCode() * 8));
     } else {
-        if (reg2.GetCode() - reg1.GetCode() == 1 && reg2.GetCode() % 2 == 0) {
-            __ Stp(reg1, reg2, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + reg1.GetCode() * 8));
+        if (reg2.RealCode() - reg1.RealCode() == 1 && reg2.RealCode() % 2 == 0) {
+            __ Stp(reg1, reg2, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + reg1.RealCode() * 8));
         } else {
-            __ Str(reg1, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + reg1.GetCode() * 8));
-            __ Str(reg2, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + reg2.GetCode() * 8));
+            __ Str(reg1, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + reg1.RealCode() * 8));
+            __ Str(reg2, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + reg2.RealCode() * 8));
         }
     }
 }
 
 void Context::PopX(Register reg1, Register reg2) {
-    assert(reg1.GetCode() != reg_ctx_.GetCode() && reg2.GetCode() != reg_ctx_.GetCode());
-    if (reg2.GetCode() == NoReg.GetCode()) {
-        __ Ldr(reg1, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + reg1.GetCode() * 8));
+    assert(reg1.RealCode() != reg_ctx_.RealCode() && reg2.RealCode() != reg_ctx_.RealCode());
+    if (reg2.RealCode() == NoReg.RealCode()) {
+        __ Ldr(reg1, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + reg1.RealCode() * 8));
     } else {
-        if (reg2.GetCode() - reg1.GetCode() == 1 && reg2.GetCode() % 2 == 0) {
-            __ Ldp(reg1, reg2, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + reg1.GetCode() * 8));
+        if (reg2.RealCode() - reg1.RealCode() == 1 && reg2.RealCode() % 2 == 0) {
+            __ Ldp(reg1, reg2, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + reg1.RealCode() * 8));
         } else {
-            __ Ldr(reg1, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + reg1.GetCode() * 8));
-            __ Ldr(reg2, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + reg2.GetCode() * 8));
+            __ Ldr(reg1, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + reg1.RealCode() * 8));
+            __ Ldr(reg2, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + reg2.RealCode() * 8));
         }
     }
 }
@@ -213,10 +213,10 @@ void Context::LoadPcByModuleOffset(s64 offset, Register target, Register tmp2) {
 }
 
 void Context::LoadFromContext(Register rt, VAddr offset) {
-    if (reg_ctx_.GetCode() == rt.GetCode()) {
+    if (reg_ctx_.RealCode() == rt.RealCode()) {
         auto wrap = [this, rt, offset](std::array<Register, 1> tmp) -> void {
             __ Ldr(tmp[0], MemOperand(reg_ctx_, offset));
-            __ Str(tmp[0], MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + rt.GetCode() * 8));
+            __ Str(tmp[0], MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + rt.RealCode() * 8));
         };
         WrapContext<1>(wrap, {rt});
     } else {
@@ -309,10 +309,10 @@ void Context::SaveContextFull(bool protect_lr) {
     auto wrap = [this, protect_lr](std::array<Register, 1> tmp) -> void {
         // XRegs
         for (int i = 0; i < 30; i += 2) {
-            if (i == reg_ctx_.GetCode()) {
+            if (i == reg_ctx_.RealCode()) {
                 __ Str(XRegister::GetXRegFromCode(i + 1),
                        MemOperand(reg_ctx_, 8 * (i + 1)));
-            } else if (i + 1 == reg_ctx_.GetCode()) {
+            } else if (i + 1 == reg_ctx_.RealCode()) {
                 __ Str(XRegister::GetXRegFromCode(i),
                        MemOperand(reg_ctx_, 8 * i));
             } else {
@@ -321,7 +321,7 @@ void Context::SaveContextFull(bool protect_lr) {
             }
         }
         // lr
-        if (reg_ctx_.GetCode() != 30) {
+        if (reg_ctx_.RealCode() != 30) {
             __ Str(x30, MemOperand(reg_ctx_, protect_lr ? 8 * 30 : OFFSET_CTX_A64_HOST_LR));
         }
         // Sysregs
@@ -354,10 +354,10 @@ void Context::RestoreContextFull(bool protect_lr) {
     auto wrap = [this, protect_lr](std::array<Register, 1> tmp) -> void {
         // XRegs
         for (int i = 0; i < 30; i += 2) {
-            if (i == reg_ctx_.GetCode()) {
+            if (i == reg_ctx_.RealCode()) {
                 __ Ldr(XRegister::GetXRegFromCode(i),
                        MemOperand(reg_ctx_, 8 * i));
-            } else if (i + 1 == reg_ctx_.GetCode()) {
+            } else if (i + 1 == reg_ctx_.RealCode()) {
                 __ Ldr(XRegister::GetXRegFromCode(i + 1),
                        MemOperand(reg_ctx_, 8 * (i + 1)));
             } else {
@@ -366,7 +366,7 @@ void Context::RestoreContextFull(bool protect_lr) {
             }
         }
         // lr
-        if (reg_ctx_.GetCode() != 30) {
+        if (reg_ctx_.RealCode() != 30) {
             __ Ldr(x30, MemOperand(reg_ctx_, protect_lr ? 8 * 30 : OFFSET_CTX_A64_HOST_LR));
         }
         // Sysregs
@@ -395,10 +395,10 @@ void Context::SaveContextCallerSaved(bool protect_lr) {
         // XRegs
         // x0 - x18
         for (int i = 0; i < 19; i += 2) {
-            if (i == reg_ctx_.GetCode()) {
+            if (i == reg_ctx_.RealCode()) {
                 __ Str(XRegister::GetXRegFromCode(i + 1),
                        MemOperand(reg_ctx_, 8 * (i + 1)));
-            } else if (i + 1 == reg_ctx_.GetCode()) {
+            } else if (i + 1 == reg_ctx_.RealCode()) {
                 __ Str(XRegister::GetXRegFromCode(i),
                        MemOperand(reg_ctx_, 8 * i));
             } else {
@@ -407,7 +407,7 @@ void Context::SaveContextCallerSaved(bool protect_lr) {
             }
         }
         // lr
-        if (reg_ctx_.GetCode() != 30) {
+        if (reg_ctx_.RealCode() != 30) {
             __ Str(LR, MemOperand(reg_ctx_, protect_lr ? 8 * 30 : OFFSET_CTX_A64_HOST_LR));
         }
         // Sysregs
@@ -438,10 +438,10 @@ void Context::RestoreContextCallerSaved(bool protect_lr) {
     auto wrap = [this, protect_lr](std::array<Register, 1> tmp) -> void {
         // XRegs
         for (int i = 0; i < 19; i += 2) {
-            if (i == reg_ctx_.GetCode()) {
+            if (i == reg_ctx_.RealCode()) {
                 __ Ldr(XRegister::GetXRegFromCode(i + 1),
                        MemOperand(reg_ctx_, 8 * (i + 1)));
-            } else if (i + 1 == reg_ctx_.GetCode()) {
+            } else if (i + 1 == reg_ctx_.RealCode()) {
                 __ Ldr(XRegister::GetXRegFromCode(i),
                        MemOperand(reg_ctx_, 8 * i));
             } else {
@@ -450,7 +450,7 @@ void Context::RestoreContextCallerSaved(bool protect_lr) {
             }
         }
         // lr
-        if (reg_ctx_.GetCode() != 30) {
+        if (reg_ctx_.RealCode() != 30) {
             __ Ldr(x30, MemOperand(reg_ctx_, protect_lr ? 8 * 30 : OFFSET_CTX_A64_HOST_LR));
         }
         // Sysregs
@@ -547,9 +547,9 @@ void Context::CheckPCAndDispatch() {
         __ Sub(tmp[1], tmp[1], tmp[0]);
         __ Cbz(tmp[1], not_changed);
         PopX(tmp[1]);
-        FindForwardTarget(static_cast<u8>(tmp[0].GetCode()));
+        FindForwardTarget(static_cast<u8>(tmp[0].RealCode()));
         __ Mov(reg_forward_, tmp[0]);
-        if (tmp[0].GetCode() != reg_forward_.GetCode()) {
+        if (tmp[0].RealCode() != reg_forward_.RealCode()) {
             PopX(tmp[0]);
         }
         // restore real lr, because will never come back
@@ -608,16 +608,16 @@ void ContextNoMemTrace::LoadContext(bool protect_tmp) {
     __ Ldr(reg_ctx_, MemOperand(reg_ctx_, CTX_TLS_SLOT * 8));
     if (protect_tmp) {
         // save tmp0, tmp1
-        __ Str(TMP0, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + TMP0.GetCode() * 8));
+        __ Str(TMP0, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + TMP0.RealCode() * 8));
         __ Pop(TMP0);
-        __ Str(TMP0, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + reg_ctx_.GetCode() * 8));
+        __ Str(TMP0, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + reg_ctx_.RealCode() * 8));
         // restore tmp0
-        __ Ldr(TMP0, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + TMP0.GetCode() * 8));
+        __ Ldr(TMP0, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + TMP0.RealCode() * 8));
     }
 }
 
 void ContextNoMemTrace::ClearContext() {
-    __ Ldr(reg_ctx_, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + reg_ctx_.GetCode() * 8));
+    __ Ldr(reg_ctx_, MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + reg_ctx_.RealCode() * 8));
 }
 
 u32 ContextNoMemTrace::CodeSizeOfForwardRestore() {

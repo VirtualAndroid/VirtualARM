@@ -6,7 +6,7 @@
 
 #pragma once
 
-namespace CodeCache {
+namespace Jit {
 
     using EntryPoint = void*;
     using EntryPointFromJitToJit = void(*)();

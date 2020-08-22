@@ -10,7 +10,7 @@
 
 using namespace Instructions;
 
-namespace CodeCache {
+namespace Jit {
 
     enum class EntryType {
         Interpreter,

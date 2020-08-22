@@ -6,7 +6,7 @@
 
 #include "asm/arm64/instruction_table.h"
 #include "asm/arm64/visitors/deocde_a64.h"
-#include "dbi/arm64/context_new.h"
+#include "dbi/arm64/dbi_jit_context.h"
 
 
 using namespace Decode::A64;
@@ -24,7 +24,7 @@ namespace Jit::A64 {
 
         auto target = RoundDown(context->PC(), PAGE_SIZE) + offset;
 
-        RegisterGuard guard(context, XRegister::GetXRegFromCode(rd));
+        RegisterGuard guard(context, context->GetXRegister(rd));
         context->Set(guard.Target(), target);
         guard.Dirty();
     }
@@ -38,10 +38,10 @@ namespace Jit::A64 {
         auto tmp = reg_alloc.AcquireTempX();
 
         __ Mov(tmp, addr);
-        context->LookupPageTable(tmp);
+        context->LookupPageTable(tmp, addr);
 
         if constexpr (flags & Float) {
-            auto rt_v = VRegister::GetVRegFromCode(rt);
+            auto rt_v = context->GetVRegister(rt);
             if constexpr (sizeof(T) == 16) {
                 __ Ldr(rt_v.Q(), MemOperand(tmp));
             } else if constexpr (sizeof(T) == 8) {
@@ -54,11 +54,11 @@ namespace Jit::A64 {
         } else if constexpr (flags & Prfm) {
             __ Prfm(PrefetchOperation(context->Instr()->Rt), MemOperand(tmp));
         } else {
-            RegisterGuard guard(context, XRegister::GetXRegFromCode(rt));
+            RegisterGuard guard(context, context->GetXRegister(rt));
             guard.Dirty();
-            if (sizeof(T) == 8) {
+            if constexpr (sizeof(T) == 8) {
                 __ Ldr(guard.Target(), MemOperand(tmp));
-            } else if (sizeof(T) == 4) {
+            } else if constexpr (sizeof(T) == 4) {
                 __ Ldr(guard.Target().W(), MemOperand(tmp));
             } else {
                 __ Emit(context->Instr()->raw);
@@ -66,6 +66,16 @@ namespace Jit::A64 {
         }
 
         reg_alloc.ReleaseTempX(tmp);
+    }
+
+    template<typename T, unsigned flags = 0>
+    void LoadStoreReg(ContextA64 context, u8 rt, u8 rn) {
+
+    }
+
+    template<typename T, unsigned flags = 0>
+    void LoadStorePair(ContextA64 context, u8 rt, u8 rt2, u8 rn) {
+
     }
 
 #undef __

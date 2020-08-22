@@ -17,7 +17,6 @@ const VAddr OFFSET_CTX_A64_FPSR = OFFSET_OF(CPUContext, fpsr);
 const VAddr OFFSET_CTX_A64_TPIDR = OFFSET_OF(CPUContext, tpidr);
 const VAddr OFFSET_CTX_A64_TPIDRRO = OFFSET_OF(CPUContext, tpidrro);
 const VAddr OFFSET_CTX_A64_FORWARD = OFFSET_OF(CPUContext, forward);
-const VAddr OFFSET_CTX_A64_FORWARD_EXT = OFFSET_OF(CPUContext, forward_ext);
 const VAddr OFFSET_CTX_A64_QUERY_PAGE = OFFSET_OF(CPUContext, forward);
 const VAddr OFFSET_CTX_A64_SVC_NUM = OFFSET_OF(CPUContext, forward);
 const VAddr OFFSET_CTX_A64_TLB = OFFSET_OF(CPUContext, tlb);

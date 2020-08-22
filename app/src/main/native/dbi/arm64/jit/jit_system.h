@@ -6,7 +6,7 @@
 
 #include "asm/arm64/instruction_table.h"
 #include "asm/arm64/visitors/deocde_a64.h"
-#include "dbi/arm64/context_new.h"
+#include "dbi/arm64/dbi_jit_context.h"
 
 
 using namespace Decode::A64;
@@ -18,13 +18,13 @@ namespace Jit::A64 {
     template <unsigned flags = 0>
     void Exception(ContextA64 context, u16 imm) {
         if constexpr (flags & Svc) {
-            context->ToContextSwitch({ContextSwitcher::Svc, imm});
+            context->Interrupt({InterruptHelp::Svc, imm});
         } else if constexpr (flags & Hvc) {
-            context->ToContextSwitch({ContextSwitcher::Hvc, imm});
+            context->Interrupt({InterruptHelp::Hvc, imm});
         } else if constexpr (flags & Brk) {
-            context->ToContextSwitch({ContextSwitcher::Brk, 0});
+            context->Interrupt({InterruptHelp::Brk, 0});
         } else {
-            context->ToContextSwitch({ContextSwitcher::ErrorInstr, context->PC()});
+            context->Interrupt({InterruptHelp::ErrorInstr, context->PC()});
         }
     }
 
@@ -33,7 +33,7 @@ namespace Jit::A64 {
 
         auto &masm_ = context->Assembler();
 
-        RegisterGuard guard(context, XRegister::GetXRegFromCode(rt));
+        RegisterGuard guard(context, context->GetXRegister(rt));
         if constexpr (write) {
             guard.Dirty();
         }
@@ -52,7 +52,7 @@ namespace Jit::A64 {
 
         if (context_offset < 0) {
             auto instr = *context->Instr();
-            instr.Rt = guard.Target().GetCode();
+            instr.Rt = guard.Target().RealCode();
             __ Emit(instr.raw);
             return;
         }

@@ -7,49 +7,67 @@
 #include "dbi_global_stubs.h"
 #include "block/code_cache.h"
 
-namespace CodeCache {
+namespace Jit {
     template<typename T>
     class FindTable;
 }
 
 namespace DBI::A64 {
 
-    enum RuntimeMode : u8 {
-        QuickMode,
-        MemoryTrace,
-        Mmu
-    };
 
     struct ContextConfig {
-        RuntimeMode mode;
         u8 context_reg;
         u8 forward_reg;
     };
 
-    struct JitCacheBlock {
+    struct MmuConfig {
+        bool enable;
+        u8 readable_bit;
+        u8 writable_bit;
+        u8 executable_bit;
+    };
+
+    class JitCacheBlock {
+    public:
+
+        JitCacheBlock();
+
+        JitCacheBlock(VAddr stub_addr);
+        ~JitCacheBlock();
+
         VAddr cache_start;
         VAddr cache_len;
-
-        void Destroy() const {
-
-        }
+        VAddr stub_addr;
+        SpinMutex jit_lock;
     };
 
     class Instance : public BaseObject {
     public:
-        Instance(RuntimeMode mode);
+
+        constexpr static size_t page_bits = 12;
+        using JitCacheA64 = Jit::JitCache<JitCacheBlock, page_bits>;
+
+        explicit Instance();
 
         const ContextConfig &GetContextConfig() const;
 
-        const SharedPtr<CodeCache::FindTable<VAddr>> &GetCodeFindTable() const;
+        const MmuConfig &GetMmuConfig() const;
 
-        const SharedPtr<DBI::A64::GlobalStubs> &GetGlobalStubs() const;
+        const SharedPtr<Jit::FindTable<VAddr>> &GetCodeFindTable() const;
+
+        const SharedPtr<GlobalStubs> &GetGlobalStubs() const;
+
+        JitCacheA64::Entry *JitBlock(VAddr vaddr);
+        JitCacheA64::Entry *FindJitCache(VAddr addr);
+        JitCacheA64::Entry *FindAndJit(VAddr addr);
+        JitCacheA64::Entry *CommitJitCache(const JitCacheA64::Entry &entry);
 
     private:
         ContextConfig context_config_;
-        SharedPtr<CodeCache::FindTable<VAddr>> code_find_table_;
+        MmuConfig mmu_config_;
+        SharedPtr<Jit::FindTable<VAddr>> code_find_table_;
         SharedPtr<GlobalStubs> global_stubs_;
-        SharedPtr<Jit::JitCache<JitCacheBlock, 12>> jit_cache_;
+        SharedPtr<JitCacheA64> jit_cache_;
     };
 
     class Core : public BaseObject {

@@ -104,7 +104,7 @@ namespace CPU::A64 {
     };
 
     #pragma pack(8)
-    struct ContextSwitcher {
+    struct InterruptHelp {
         enum Reason : u32 {
             Svc,
             Hvc,
@@ -141,11 +141,13 @@ namespace CPU::A64 {
         VAddr dispatcher_table;
         // flags
         u64 suspend_flag;
+        // ticks
+        u64 ticks_now;
+        u64 ticks_max;
         // help fields
         u64 forward;
-        u64 forward_ext;
         VAddr context_ptr;
-        ContextSwitcher ctx_switch;
+        InterruptHelp interrupt;
     };
 }
 
@@ -160,13 +162,11 @@ extern "C" const VAddr OFFSET_CTX_A64_FPSR;
 extern "C" const VAddr OFFSET_CTX_A64_TPIDR;
 extern "C" const VAddr OFFSET_CTX_A64_TPIDRRO;
 extern "C" const VAddr OFFSET_CTX_A64_FORWARD;
-extern "C" const VAddr OFFSET_CTX_A64_FORWARD_EXT;
 extern "C" const VAddr OFFSET_CTX_A64_QUERY_PAGE;
 extern "C" const VAddr OFFSET_CTX_A64_TLB;
 extern "C" const VAddr OFFSET_CTX_A64_PAGE_TABLE;
 extern "C" const VAddr OFFSET_CTX_A64_SUSPEND_ADDR;
 extern "C" const VAddr OFFSET_CTX_A64_DISPATCHER_TABLE;
-extern "C" const VAddr OFFSET_CTX_A64_HOST_LR;
 extern "C" const VAddr OFFSET_CTX_A64_SVC_NUM;
 extern "C" const VAddr OFFSET_CTX_A64_HOST_SP;
 extern "C" const VAddr OFFSET_CTX_A64_TMP_PC;

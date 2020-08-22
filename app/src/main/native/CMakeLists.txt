@@ -15,6 +15,7 @@ add_library(virtual_arm SHARED
         virtual_arm.cc
         base/marcos.cc
         base/hash_table.cc
+        base/log.cc
         instruction/instruction.cc
         asm/arm64/instruction_fields.cc
         asm/arm64/instruction_aarch64.cc
@@ -41,9 +42,10 @@ add_library(virtual_arm SHARED
         dbi/arm64/dbi_mmu_arm64.cpp
 #        dbi/arm64/dbi_trampolines_arm64.cc
         dbi/arm64/dbi_diskcache_loader.cc
-        dbi/arm64/context_new.cc
+        dbi/arm64/dbi_jit_context.cc
         dbi/arm64/dbi_global_stubs.cc
         dbi/arm64/decode/decode_vixl.cc
+        dbi/arm64/dbi_block_stubs.cc
         block/host_code_block.cpp
         block/code_find_table.cc
         block/module.cc

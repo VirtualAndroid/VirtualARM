@@ -4,7 +4,7 @@
 
 #include "block_ir.h"
 
-using namespace CodeCache::IR;
+using namespace Jit::IR;
 
 void CodeBlock::Emit(InstrIR &instr) {
     instrs_.push_back(instr);

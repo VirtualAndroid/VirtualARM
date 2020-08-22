@@ -8,7 +8,7 @@
 #include "argument_ir.h"
 #include "block_ir.h"
 
-using namespace CodeCache::IR;
+using namespace Jit::IR;
 
 namespace Instructions::IR {
 

@@ -12,8 +12,8 @@
 #include "block/host_code_block.h"
 
 using namespace vixl::aarch64;
-using namespace CodeCache;
-using namespace CodeCache::A64;
+using namespace Jit;
+using namespace Jit::A64;
 
 
 // TODO Code Invalid 粒度在于一个个 Block，那当某些线程仍跑在旧 Block 中时，新 Block 的改动被提交了，那么该线程仍会跑一段旧代码，syscall 后的代码较易复现
@@ -109,11 +109,11 @@ namespace DBI::A64 {
             for (int i = 0; i < 29; ++i) {
                 if (index == temp_count)
                     break;
-                if (i == reg_ctx_.GetCode())
+                if (i == reg_ctx_.RealCode())
                     continue;
                 bool need_skip{false};
                 for (auto effect: effect_regs) {
-                    if (effect.GetCode() == i) {
+                    if (effect.RealCode() == i) {
                         need_skip = true;
                         break;
                     }
@@ -136,14 +136,14 @@ namespace DBI::A64 {
             while (index < size) {
                 // could stp
                 if ((index + 1 < size) &&
-                    (xregs[index + 1].GetCode() - xregs[index].GetCode() == 1) &&
-                    (xregs[index].GetCode() % 2 == 0)) {
+                    (xregs[index + 1].RealCode() - xregs[index].RealCode() == 1) &&
+                    (xregs[index].RealCode() % 2 == 0)) {
                     __ Stp(xregs[index], xregs[index + 1],
-                           MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + xregs[index].GetCode()));
+                           MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + xregs[index].RealCode()));
                     index += 2;
                 } else {
                     __ Str(xregs[index],
-                           MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + xregs[index].GetCode()));
+                           MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + xregs[index].RealCode()));
                     index += 1;
                 }
             }
@@ -155,14 +155,14 @@ namespace DBI::A64 {
             while (index < size) {
                 // could stp
                 if ((index + 1 < size) &&
-                    (xregs[index + 1].GetCode() - xregs[index].GetCode() == 1) &&
-                    (xregs[index].GetCode() % 2 == 0)) {
+                    (xregs[index + 1].RealCode() - xregs[index].RealCode() == 1) &&
+                    (xregs[index].RealCode() % 2 == 0)) {
                     __ Ldp(xregs[index], xregs[index + 1],
-                           MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + xregs[index].GetCode()));
+                           MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + xregs[index].RealCode()));
                     index += 2;
                 } else {
                     __ Ldr(xregs[index],
-                           MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + xregs[index].GetCode()));
+                           MemOperand(reg_ctx_, OFFSET_CTX_A64_CPU_REG + xregs[index].RealCode()));
                     index += 1;
                 }
             }

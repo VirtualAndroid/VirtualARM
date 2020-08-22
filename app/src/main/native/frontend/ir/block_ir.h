@@ -12,7 +12,7 @@ using namespace Instructions;
 using namespace boost::intrusive;
 using namespace Instructions::IR;
 
-namespace CodeCache::IR {
+namespace Jit::IR {
 
 
     struct Terminal {

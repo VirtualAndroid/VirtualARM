@@ -6,7 +6,7 @@
 #include "host_code_block.h"
 #include "platform/memory.h"
 
-using namespace CodeCache;
+using namespace Jit;
 
 bool BaseBlock::SaveToDisk(std::string path) {
     return false;

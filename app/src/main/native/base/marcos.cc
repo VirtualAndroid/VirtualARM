@@ -43,3 +43,19 @@ void ClearCachePlatform(VAddr start, VAddr size) {
     char *end = reinterpret_cast<char *>(start + size);
     __builtin___clear_cache(reinterpret_cast<char *>(start), end);
 }
+
+SpinLockGuard::SpinLockGuard(SpinMutex &mutex) : mutex_(mutex) {
+    mutex.Lock();
+}
+
+SpinLockGuard::~SpinLockGuard() {
+    mutex_.Unlock();
+}
+
+void SpinLockGuard::Lock() {
+    mutex_.Lock();
+}
+
+void SpinLockGuard::Unlock() {
+    mutex_.Unlock();
+}
