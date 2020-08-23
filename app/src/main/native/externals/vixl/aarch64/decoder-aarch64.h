@@ -146,7 +146,7 @@ class DecoderVisitor {
 
   virtual ~DecoderVisitor() {}
 
-#define DECLARE(A) virtual void Visit##A(const Instruction* instr) = 0;
+#define DECLARE(A) virtual void Visit##A(const Instruction* instr) { VisitUnimplemented(instr); };
   VISITOR_LIST(DECLARE)
 #undef DECLARE
 

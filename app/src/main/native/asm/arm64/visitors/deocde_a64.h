@@ -11,6 +11,7 @@ namespace Decode::A64 {
         TestBit = 1 << 1,
         Comp    = 1 << 2,
         Negate  = 1 << 3,
+        CompW   = 1 << 4
     };
 
     enum LoadStoreFlags {
@@ -24,7 +25,8 @@ namespace Decode::A64 {
         ExtendRes   = 1 << 7,
         ExtendTo64  = 1 << 8,
         Acquire     = 1 << 9,
-        Prfm        = 1 << 10
+        Prfm        = 1 << 10,
+        LoadSigned  = 1 << 11
     };
 
     enum ExceptionFlags {

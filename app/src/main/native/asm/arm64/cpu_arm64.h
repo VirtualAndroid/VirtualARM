@@ -133,21 +133,25 @@ namespace CPU::A64 {
         u32 fpsr;
         u64 tpidr;
         u64 tpidrro;
+        // dispatcher
+        VAddr pre_pc;
+        VAddr forward;
+        VAddr code_cache;
+        VAddr dispatcher_table;
         // memory
-        VAddr host_sp;
         VAddr tlb;
         VAddr page_table;
-        // dispatcher
-        VAddr dispatcher_table;
+        // interrupt
+        InterruptHelp interrupt;
+        VAddr interrupt_sp;
+        VAddr host_sp;
         // flags
         u64 suspend_flag;
         // ticks
         u64 ticks_now;
         u64 ticks_max;
         // help fields
-        u64 forward;
         VAddr context_ptr;
-        InterruptHelp interrupt;
     };
 }
 
@@ -162,12 +166,13 @@ extern "C" const VAddr OFFSET_CTX_A64_FPSR;
 extern "C" const VAddr OFFSET_CTX_A64_TPIDR;
 extern "C" const VAddr OFFSET_CTX_A64_TPIDRRO;
 extern "C" const VAddr OFFSET_CTX_A64_FORWARD;
+extern "C" const VAddr OFFSET_CTX_A64_CODE_CACHE;
 extern "C" const VAddr OFFSET_CTX_A64_QUERY_PAGE;
 extern "C" const VAddr OFFSET_CTX_A64_TLB;
 extern "C" const VAddr OFFSET_CTX_A64_PAGE_TABLE;
 extern "C" const VAddr OFFSET_CTX_A64_SUSPEND_ADDR;
 extern "C" const VAddr OFFSET_CTX_A64_DISPATCHER_TABLE;
-extern "C" const VAddr OFFSET_CTX_A64_SVC_NUM;
 extern "C" const VAddr OFFSET_CTX_A64_HOST_SP;
+extern "C" const VAddr OFFSET_CTX_A64_INTERRUPT_SP;
 extern "C" const VAddr OFFSET_CTX_A64_TMP_PC;
 

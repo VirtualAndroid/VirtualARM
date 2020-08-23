@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.4.1)
 project(VirtualARM)
 
 set(CMAKE_CXX11_EXTENSION_COMPILE_OPTION "-std=c++17")
+SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wno-narrowing")
 ENABLE_LANGUAGE(ASM)
 
 include_directories(.)
@@ -36,16 +38,18 @@ add_library(virtual_arm SHARED
         backend/arm64/trampoline_a64.cc
         backend/arm64/trampoline.S
         backend/ir/interpreter_ir.cc
-        dbi/arm64/dbi_arm64.cc
-#        dbi/arm64/dbi_jit_arm64.cc
-#        dbi/arm64/dbi_context_arm64.cc
-        dbi/arm64/dbi_mmu_arm64.cpp
-#        dbi/arm64/dbi_trampolines_arm64.cc
-        dbi/arm64/dbi_diskcache_loader.cc
-        dbi/arm64/dbi_jit_context.cc
-        dbi/arm64/dbi_global_stubs.cc
-        dbi/arm64/decode/decode_vixl.cc
-        dbi/arm64/dbi_block_stubs.cc
+        svm/arm64/svm_arm64.cc
+#        svm/arm64/dbi_jit_arm64.cc
+#        svm/arm64/dbi_context_arm64.cc
+        svm/arm64/svm_mmu.cpp
+#        svm/arm64/dbi_trampolines_arm64.cc
+        svm/arm64/svm_diskcache_loader.cc
+        svm/arm64/svm_jit_context.cc
+        svm/arm64/svm_global_stubs.cc
+        svm/arm64/decode/decode_vixl.cc
+        svm/arm64/svm_block_stubs.cc
+        svm/arm64/svm_thread.cc
+        svm/arm64/svm_jit_manager.cc
         block/host_code_block.cpp
         block/code_find_table.cc
         block/module.cc

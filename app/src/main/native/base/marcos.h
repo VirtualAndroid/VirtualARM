@@ -24,6 +24,7 @@ using s64 = std::int64_t; ///< 64-bit signed int
 
 using f32 = float;  ///< 32-bit floating point
 using f64 = double; ///< 64-bit floating point
+using f128 = u128; ///< 64-bit floating point
 
 using VAddr = std::size_t;    ///< Represents a pointer in the userspace virtual address space.
 

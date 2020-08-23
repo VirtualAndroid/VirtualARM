@@ -4,6 +4,6 @@
 
 #pragma once
 
-namespace DBI {
+namespace SVM {
     
 }
