@@ -11,6 +11,7 @@
 #include "block/code_find_table.h"
 #include "svm_mmu.h"
 #include "block/host_code_block.h"
+#include "svm_jit_manager.h"
 
 using namespace vixl::aarch64;
 using namespace Jit::A64;
@@ -64,6 +65,8 @@ namespace Jit::A64 {
 
         Label *AllocLabel();
 
+        Label *AllocOutstanding(VAddr target);
+
         Label *GetDispatcherLabel();
 
         Label *GetMapAddressLabel();
@@ -77,9 +80,16 @@ namespace Jit::A64 {
         void BindMapAddress(VAddr addr);
 
     private:
+
+        struct Outstanding {
+            VAddr target;
+            Label *label;
+        };
+
         VAddr dest_buffer_start_;
         MacroAssembler &masm_;
         std::list<Label *> labels_;
+        std::list<Outstanding> labels_outstanding_;
         Label *dispatcher_label_;
         Label *page_lookup_label_;
         Label *map_address_label_;
@@ -121,6 +131,8 @@ namespace Jit::A64 {
 
         void SetPC(VAddr pc);
 
+        void Tick();
+
         void Set(const Register &x, u64 value);
 
         void Set(const Register &x, u32 value);
@@ -151,15 +163,19 @@ namespace Jit::A64 {
 
         virtual void LookupPageTable(const Register &rt, const VirtualAddress &va, bool write = false) {};
 
-        void BeginBlock();
+        void BeginBlock(VAddr start);
+
+        void SetCacheEntry(JitCacheEntry *entry);
 
         void EndBlock();
 
         VAddr PC() const;
 
-        const Instance &GetInstance() const;
+        bool Termed() const;
 
-        Instructions::A64::AArch64Inst *Instr();
+        size_t BlockCacheSize();
+
+        virtual Instructions::A64::AArch64Inst Instr();
 
         MacroAssembler &Assembler();
 
@@ -180,8 +196,10 @@ namespace Jit::A64 {
         LabelAllocator label_allocator_{masm_};
         SharedPtr<FindTable<VAddr>> code_find_table_;
         SharedPtr<GlobalStubs> global_stubs_;
-        Instructions::A64::AArch64Inst *pc_;
-        size_t current_block_ticks_;
+        VAddr pc_;
+        u32 current_block_ticks_;
+        bool terminal{false};
+        JitCacheEntry *current_cache_entry_;
     };
 
     class QuickContext : public JitContext {
@@ -197,6 +215,8 @@ namespace Jit::A64 {
     public:
         ContextWithMmu(const SharedPtr<Instance> &instance);
         void LookupPageTable(const Register &rt, const VirtualAddress &va, bool write) override;
+
+        Instructions::A64::AArch64Inst Instr() override;
 
     private:
 

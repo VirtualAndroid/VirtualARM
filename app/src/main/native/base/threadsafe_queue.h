@@ -1,172 +1,238 @@
-// Copyright 2010 Dolphin Emulator Project
-// Licensed under GPLv2+
-// Refer to the license.txt file included.
-
 #pragma once
 
-// a simple lockless thread-safe,
-// single reader, single writer queue
-
 #include <atomic>
-#include <condition_variable>
-#include <cstddef>
-#include <mutex>
-#include <utility>
+#include <cassert>
+#include <cstddef> // offsetof
+#include <limits>
+#include <memory>
+#include <stdexcept>
+#include <stdlib.h> // posix_memalign
 
-namespace Common {
-template <typename T>
-class SPSCQueue {
-public:
-    SPSCQueue() {
-        write_ptr = read_ptr = new ElementPtr();
+namespace rigtorp {
+    namespace mpmc {
+
+        static constexpr size_t hardwareInterferenceSize = 64;
+
+#if defined(__cpp_aligned_new)
+        template<typename T> using AlignedAllocator = std::allocator<T>;
+#else
+        template <typename T> struct AlignedAllocator {
+  using value_type = T;
+
+  T *allocate(std::size_t n) {
+    if (n > std::numeric_limits<std::size_t>::max() / sizeof(T)) {
+      throw std::bad_array_new_length();
     }
-    ~SPSCQueue() {
-        // this will empty out the whole queue
-        delete read_ptr;
+    T *p;
+    if (posix_memalign(reinterpret_cast<void **>(&p), alignof(T),
+                       sizeof(T) * n) != 0) {
+      throw std::bad_alloc();
     }
+    return p;
+  }
 
-    std::size_t Size() const {
-        return size.load();
-    }
-
-    bool Empty() const {
-        return Size() == 0;
-    }
-
-    T& Front() const {
-        return read_ptr->current;
-    }
-
-    template <typename Arg>
-    void Push(Arg&& t) {
-        // create the element, add it to the queue
-        write_ptr->current = std::forward<Arg>(t);
-        // set the next pointer to a new element ptr
-        // then advance the write pointer
-        ElementPtr* new_ptr = new ElementPtr();
-        write_ptr->next.store(new_ptr, std::memory_order_release);
-        write_ptr = new_ptr;
-
-        const size_t previous_size{size++};
-
-        // Acquire the mutex and then immediately release it as a fence.
-        // TODO(bunnei): This can be replaced with C++20 waitable atomics when properly supported.
-        // See discussion on https://github.com/yuzu-emu/yuzu/pull/3173 for details.
-        if (previous_size == 0) {
-            std::lock_guard lock{cv_mutex};
-        }
-        cv.notify_one();
-    }
-
-    void Pop() {
-        --size;
-
-        ElementPtr* tmpptr = read_ptr;
-        // advance the read pointer
-        read_ptr = tmpptr->next.load();
-        // set the next element to nullptr to stop the recursive deletion
-        tmpptr->next.store(nullptr);
-        delete tmpptr; // this also deletes the element
-    }
-
-    bool Pop(T& t) {
-        if (Empty())
-            return false;
-
-        --size;
-
-        ElementPtr* tmpptr = read_ptr;
-        read_ptr = tmpptr->next.load(std::memory_order_acquire);
-        t = std::move(tmpptr->current);
-        tmpptr->next.store(nullptr);
-        delete tmpptr;
-        return true;
-    }
-
-    T PopWait() {
-        if (Empty()) {
-            std::unique_lock lock{cv_mutex};
-            cv.wait(lock, [this]() { return !Empty(); });
-        }
-        T t;
-        Pop(t);
-        return t;
-    }
-
-    // not thread-safe
-    void Clear() {
-        size.store(0);
-        delete read_ptr;
-        write_ptr = read_ptr = new ElementPtr();
-    }
-
-private:
-    // stores a pointer to element
-    // and a pointer to the next ElementPtr
-    class ElementPtr {
-    public:
-        ElementPtr() {}
-        ~ElementPtr() {
-            ElementPtr* next_ptr = next.load();
-
-            if (next_ptr)
-                delete next_ptr;
-        }
-
-        T current;
-        std::atomic<ElementPtr*> next{nullptr};
-    };
-
-    ElementPtr* write_ptr;
-    ElementPtr* read_ptr;
-    std::atomic_size_t size{0};
-    std::mutex cv_mutex;
-    std::condition_variable cv;
+  void deallocate(T *p, std::size_t) {
+    free(p);
+  }
 };
+#endif
 
-// a simple thread-safe,
-// single reader, multiple writer queue
+        template<typename T>
+        struct Slot {
+            ~Slot() noexcept {
+                if (turn & 1) {
+                    destroy();
+                }
+            }
 
-template <typename T>
-class MPSCQueue {
-public:
-    std::size_t Size() const {
-        return spsc_queue.Size();
-    }
+            template<typename... Args>
+            void construct(Args &&... args) noexcept {
+                static_assert(std::is_nothrow_constructible<T, Args &&...>::value,
+                              "T must be nothrow constructible with Args&&...");
+                new(&storage) T(std::forward<Args>(args)...);
+            }
 
-    bool Empty() const {
-        return spsc_queue.Empty();
-    }
+            void destroy() noexcept {
+                static_assert(std::is_nothrow_destructible<T>::value,
+                              "T must be nothrow destructible");
+                reinterpret_cast<T *>(&storage)->~T();
+            }
 
-    T& Front() const {
-        return spsc_queue.Front();
-    }
+            T &&move() noexcept { return reinterpret_cast<T &&>(storage); }
 
-    template <typename Arg>
-    void Push(Arg&& t) {
-        std::lock_guard lock{write_lock};
-        spsc_queue.Push(t);
-    }
+            // Align to avoid false sharing between adjacent slots
+            alignas(hardwareInterferenceSize) std::atomic<size_t> turn = {0};
+            typename std::aligned_storage<sizeof(T), alignof(T)>::type storage;
+        };
 
-    void Pop() {
-        return spsc_queue.Pop();
-    }
+        template<typename T, typename Allocator = AlignedAllocator<Slot<T>>>
+        class Queue {
+        private:
+            static_assert(std::is_nothrow_copy_assignable<T>::value ||
+                          std::is_nothrow_move_assignable<T>::value,
+                          "T must be nothrow copy or move assignable");
 
-    bool Pop(T& t) {
-        return spsc_queue.Pop(t);
-    }
+            static_assert(std::is_nothrow_destructible<T>::value,
+                          "T must be nothrow destructible");
 
-    T PopWait() {
-        return spsc_queue.PopWait();
-    }
+        public:
+            explicit Queue(const size_t capacity,
+                           const Allocator &allocator = Allocator())
+                    : capacity_(capacity), allocator_(allocator), head_(0), tail_(0) {
+                if (capacity_ < 1) {
+                    throw std::invalid_argument("capacity < 1");
+                }
+                // Allocate one extra slot to prevent false sharing on the last slot
+                slots_ = allocator_.allocate(capacity_ + 1);
+                // Allocators are not required to honor alignment for over-aligned types
+                // (see http://eel.is/c++draft/allocator.requirements#10) so we verify
+                // alignment here
+                if (reinterpret_cast<size_t>(slots_) % alignof(Slot<T>) != 0) {
+                    allocator_.deallocate(slots_, capacity_ + 1);
+                    throw std::bad_alloc();
+                }
+                for (size_t i = 0; i < capacity_; ++i) {
+                    new(&slots_[i]) Slot<T>();
+                }
+                static_assert(
+                        alignof(Slot<T>) == hardwareInterferenceSize,
+                        "Slot must be aligned to cache line boundary to prevent false sharing");
+                static_assert(sizeof(Slot<T>) % hardwareInterferenceSize == 0,
+                              "Slot size must be a multiple of cache line size to prevent "
+                              "false sharing between adjacent slots");
+                static_assert(sizeof(Queue) % hardwareInterferenceSize == 0,
+                              "Queue size must be a multiple of cache line size to "
+                              "prevent false sharing between adjacent queues");
+                static_assert(
+                        offsetof(Queue, tail_) - offsetof(Queue, head_) ==
+                        static_cast<std::ptrdiff_t>(hardwareInterferenceSize),
+                        "head and tail must be a cache line apart to prevent false sharing");
+            }
 
-    // not thread-safe
-    void Clear() {
-        spsc_queue.Clear();
-    }
+            ~Queue() noexcept {
+                for (size_t i = 0; i < capacity_; ++i) {
+                    slots_[i].~Slot();
+                }
+                allocator_.deallocate(slots_, capacity_ + 1);
+            }
 
-private:
-    SPSCQueue<T> spsc_queue;
-    std::mutex write_lock;
-};
-} // namespace Common
+            // non-copyable and non-movable
+            Queue(const Queue &) = delete;
+
+            Queue &operator=(const Queue &) = delete;
+
+            template<typename... Args>
+            void emplace(Args &&... args) noexcept {
+                static_assert(std::is_nothrow_constructible<T, Args &&...>::value,
+                              "T must be nothrow constructible with Args&&...");
+                auto const head = head_.fetch_add(1);
+                auto &slot = slots_[idx(head)];
+                while (turn(head) * 2 != slot.turn.load(std::memory_order_acquire));
+                slot.construct(std::forward<Args>(args)...);
+                slot.turn.store(turn(head) * 2 + 1, std::memory_order_release);
+            }
+
+            template<typename... Args>
+            bool try_emplace(Args &&... args) noexcept {
+                static_assert(std::is_nothrow_constructible<T, Args &&...>::value,
+                              "T must be nothrow constructible with Args&&...");
+                auto head = head_.load(std::memory_order_acquire);
+                for (;;) {
+                    auto &slot = slots_[idx(head)];
+                    if (turn(head) * 2 == slot.turn.load(std::memory_order_acquire)) {
+                        if (head_.compare_exchange_strong(head, head + 1)) {
+                            slot.construct(std::forward<Args>(args)...);
+                            slot.turn.store(turn(head) * 2 + 1, std::memory_order_release);
+                            return true;
+                        }
+                    } else {
+                        auto const prevHead = head;
+                        head = head_.load(std::memory_order_acquire);
+                        if (head == prevHead) {
+                            return false;
+                        }
+                    }
+                }
+            }
+
+            void push(const T &v) noexcept {
+                static_assert(std::is_nothrow_copy_constructible<T>::value,
+                              "T must be nothrow copy constructible");
+                emplace(v);
+            }
+
+            template<typename P,
+                    typename = typename std::enable_if<
+                            std::is_nothrow_constructible<T, P &&>::value>::type>
+            void push(P &&v) noexcept {
+                emplace(std::forward<P>(v));
+            }
+
+            bool try_push(const T &v) noexcept {
+                static_assert(std::is_nothrow_copy_constructible<T>::value,
+                              "T must be nothrow copy constructible");
+                return try_emplace(v);
+            }
+
+            template<typename P,
+                    typename = typename std::enable_if<
+                            std::is_nothrow_constructible<T, P &&>::value>::type>
+            bool try_push(P &&v) noexcept {
+                return try_emplace(std::forward<P>(v));
+            }
+
+            void pop(T &v) noexcept {
+                auto const tail = tail_.fetch_add(1);
+                auto &slot = slots_[idx(tail)];
+                while (turn(tail) * 2 + 1 != slot.turn.load(std::memory_order_acquire));
+                v = slot.move();
+                slot.destroy();
+                slot.turn.store(turn(tail) * 2 + 2, std::memory_order_release);
+            }
+
+            bool try_pop(T &v) noexcept {
+                auto tail = tail_.load(std::memory_order_acquire);
+                for (;;) {
+                    auto &slot = slots_[idx(tail)];
+                    if (turn(tail) * 2 + 1 == slot.turn.load(std::memory_order_acquire)) {
+                        if (tail_.compare_exchange_strong(tail, tail + 1)) {
+                            v = slot.move();
+                            slot.destroy();
+                            slot.turn.store(turn(tail) * 2 + 2, std::memory_order_release);
+                            return true;
+                        }
+                    } else {
+                        auto const prevTail = tail;
+                        tail = tail_.load(std::memory_order_acquire);
+                        if (tail == prevTail) {
+                            return false;
+                        }
+                    }
+                }
+            }
+
+        private:
+            constexpr size_t idx(size_t i) const noexcept { return i % capacity_; }
+
+            constexpr size_t turn(size_t i) const noexcept { return i / capacity_; }
+
+        private:
+            const size_t capacity_;
+            Slot<T> *slots_;
+#if defined(__has_cpp_attribute) && __has_cpp_attribute(no_unique_address)
+            Allocator allocator_ [[no_unique_address]];
+#else
+            Allocator allocator_;
+#endif
+
+            // Align to avoid false sharing between head_ and tail_
+            alignas(hardwareInterferenceSize) std::atomic<size_t> head_;
+            alignas(hardwareInterferenceSize) std::atomic<size_t> tail_;
+        };
+    } // namespace mpmc
+
+    template<typename T,
+            typename Allocator = mpmc::AlignedAllocator<mpmc::Slot<T>>>
+    using MPMCQueue = mpmc::Queue<T, Allocator>;
+
+} // namespace rigtorp

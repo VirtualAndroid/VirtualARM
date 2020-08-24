@@ -202,35 +202,24 @@ constexpr u64 RotateRight(u64 value,
 
 //share ptr
 template<typename T>
-using SharedPtr = boost::intrusive_ptr<T>;
+using SharedPtr = std::shared_ptr<T>;
 
-class BaseObject {
-private:
-
-    friend void intrusive_ptr_add_ref(BaseObject *);
-
-    friend void intrusive_ptr_release(BaseObject *);
-
-    std::atomic<u32> ref_count{0};
-    std::atomic<u32> object_id{0};
+class BaseObject : public std::enable_shared_from_this<BaseObject> {
 };
 
 template<typename T>
 inline SharedPtr<T> DynamicObjectCast(SharedPtr<BaseObject> object) {
     if (object != nullptr) {
-        return boost::static_pointer_cast<T>(object);
+        return std::static_pointer_cast<T>(object);
     }
     return nullptr;
 }
 
-inline void intrusive_ptr_add_ref(BaseObject *object) {
-    object->ref_count.fetch_add(1, std::memory_order_relaxed);
-}
-
-inline void intrusive_ptr_release(BaseObject *object) {
-    if (object->ref_count.fetch_sub(1, std::memory_order_acq_rel) == 1) {
-        delete object;
-    }
+template<typename T>
+std::shared_ptr<T> SharedFrom(T *raw) {
+    if (raw == nullptr)
+        return nullptr;
+    return std::static_pointer_cast<T>(raw->shared_from_this());
 }
 
 using ObjectRef = SharedPtr<BaseObject>;

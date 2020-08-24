@@ -51,7 +51,7 @@ namespace Jit::A64 {
         }
 
         if (context_offset < 0) {
-            auto instr = *context->Instr();
+            auto instr = context->Instr();
             instr.Rt = guard.Target().RealCode();
             __ Emit(instr.raw);
             return;

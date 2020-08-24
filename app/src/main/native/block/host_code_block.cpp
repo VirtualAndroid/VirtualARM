@@ -12,42 +12,41 @@ bool BaseBlock::SaveToDisk(std::string path) {
     return false;
 }
 
-Buffer &BaseBlock::AllocCodeBuffer(VAddr source) {
+Buffer *BaseBlock::AllocCodeBuffer(VAddr source) {
     LockGuard lck(lock_);
     Buffer &buffer = buffers_[current_buffer_id_];
     buffer.id_ = current_buffer_id_;
     buffer.source_ = source;
     buffer.version_ = 1;
-    buffers_map_[source] = current_buffer_id_;
     current_buffer_id_++;
-    return buffer;
+    return &buffer;
 }
 
-void BaseBlock::FlushCodeBuffer(Buffer &buffer, u32 size) {
+void BaseBlock::FlushCodeBuffer(Buffer *buffer, u32 size) {
     assert(size <= (UINT16_MAX << 2));
-    buffer.size_ = static_cast<u16>(size >> 2);
+    buffer->size_ = static_cast<u16>(size >> 2);
     LockGuard lck(lock_);
-    buffer.offset_ = current_offset_ += buffer.size_;
+    buffer->offset_ = current_offset_ += buffer->size_;
 }
 
-VAddr BaseBlock::GetBufferStart(Buffer &buffer) {
-    return start_ + buffer.offset_ << 2;
+VAddr BaseBlock::GetBufferStart(Buffer *buffer) {
+    return start_ + buffer->offset_ << 2;
 }
 
 VAddr BaseBlock::GetBufferStart(u16 id) {
     return GetBufferStart(GetBuffer(id));
 }
 
-VAddr BaseBlock::GetBufferEnd(Buffer &buffer) {
-    return GetBufferStart(buffer) + buffer.size_ << 2;
+VAddr BaseBlock::GetBufferEnd(Buffer *buffer) {
+    return GetBufferStart(buffer) + buffer->size_ << 2;
 }
 
 BaseBlock::BaseBlock(VAddr start, VAddr size) : start_(start), size_(size) {
 
 }
 
-Buffer &BaseBlock::GetBuffer(u16 id) {
-    return buffers_[id];
+Buffer *BaseBlock::GetBuffer(u16 id) {
+    return &buffers_[id];
 }
 
 void BaseBlock::Align(u32 size) {
@@ -84,30 +83,24 @@ A64::CodeBlock::~CodeBlock() {
     Platform::UnMapExecutableMemory(start_, size_);
 }
 
-void A64::CodeBlock::GenDispatcher(Buffer &buffer) {
-    assert(buffer.id_ < dispatcher_count_);
+void A64::CodeBlock::GenDispatcher(Buffer *buffer) {
+    assert(buffer->id_ < dispatcher_count_);
     auto delta = GetBufferStart(buffer) -
-                 reinterpret_cast<VAddr>(&dispatcher_table_->dispatchers_[buffer.id_].go_without_pop_forward_);
+                 reinterpret_cast<VAddr>(&dispatcher_table_->dispatchers_[buffer->id_].go_forward_);
     // B offset
-    dispatcher_table_->dispatchers_[buffer.id_].go_without_pop_forward_ =
+    dispatcher_table_->dispatchers_[buffer->id_].go_forward_ =
             0x14000000 | (0x03ffffff & (static_cast<u32>(delta) >> 2));
-    dispatcher_table_->dispatchers_[buffer.id_].go_with_pop_forward_ =
-            0x14000000 | (0x03ffffff & (static_cast<u32>(delta + forward_reg_rec_size_) >> 2));
 }
 
-VAddr A64::CodeBlock::GetDispatcherAddr(Buffer &buffer, bool with_pop_forward) {
-    if (with_pop_forward) {
-        return reinterpret_cast<VAddr>(&dispatcher_table_->dispatchers_[buffer.id_].go_with_pop_forward_);
-    } else {
-        return reinterpret_cast<VAddr>(&dispatcher_table_->dispatchers_[buffer.id_].go_without_pop_forward_);
-    }
+VAddr A64::CodeBlock::GetDispatcherAddr(Buffer *buffer) {
+    return reinterpret_cast<VAddr>(&dispatcher_table_->dispatchers_[buffer->id_].go_forward_);
 }
 
-VAddr A64::CodeBlock::GetDispatcherOffset(Buffer &buffer, bool with_pop_forward) {
-    return start_ - GetDispatcherAddr(buffer, with_pop_forward);
+VAddr A64::CodeBlock::GetDispatcherOffset(Buffer *buffer) {
+    return start_ - GetDispatcherAddr(buffer);
 }
 
-void A64::CodeBlock::FlushCodeBuffer(Buffer &buffer, u32 size) {
+void A64::CodeBlock::FlushCodeBuffer(Buffer *buffer, u32 size) {
     BaseBlock::FlushCodeBuffer(buffer, size);
     GenDispatcher(buffer);
 }

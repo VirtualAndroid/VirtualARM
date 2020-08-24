@@ -5,21 +5,23 @@
 
 #include <base/marcos.h>
 #include "svm_global_stubs.h"
-#include "block/code_cache.h"
 #include "svm_mmu.h"
+#include "svm_jit_manager.h"
 
 namespace Jit {
     template<typename T>
     class FindTable;
 }
 
-namespace SVM::A64 {
+using namespace Jit::A64;
 
+namespace SVM::A64 {
 
     struct JitConfig {
         u8 context_reg;
         u8 forward_reg;
         u8 jit_thread_count;
+        bool protect_code;
     };
 
     struct MmuConfig {
@@ -31,25 +33,8 @@ namespace SVM::A64 {
         u8 executable_bit;
     };
 
-    class JitCacheBlock : NonCopyable {
+    class Instance : public BaseObject {
     public:
-
-        JitCacheBlock();
-
-        JitCacheBlock(VAddr stub_addr);
-        ~JitCacheBlock();
-
-        VAddr cache_start;
-        VAddr cache_len;
-        VAddr stub_addr;
-        SpinMutex jit_lock;
-    };
-
-    class Instance : public BaseObject, NonCopyable {
-    public:
-
-        constexpr static size_t page_bits = 12;
-        using JitCacheA64 = Jit::JitCache<JitCacheBlock, page_bits>;
 
         explicit Instance();
 
@@ -63,17 +48,16 @@ namespace SVM::A64 {
 
         const SharedPtr<SVM::A64::A64MMU> &GetMmu() const;
 
-        JitCacheA64::Entry *JitBlock(VAddr vaddr);
-        JitCacheA64::Entry *FindJitCache(VAddr addr);
-        JitCacheA64::Entry *FindAndJit(VAddr addr);
-        JitCacheA64::Entry *CommitJitCache(const JitCacheA64::Entry &entry);
+        const SharedPtr<JitManager> &GetJitManager() const;
+
+        JitCacheEntry *FindAndJit(VAddr addr);
 
     private:
         JitConfig context_config_;
         MmuConfig mmu_config_;
         SharedPtr<Jit::FindTable<VAddr>> code_find_table_;
         SharedPtr<GlobalStubs> global_stubs_;
-        SharedPtr<JitCacheA64> jit_cache_;
+        SharedPtr<JitManager> jit_manager_;
         SharedPtr<A64MMU> mmu_;
     };
 

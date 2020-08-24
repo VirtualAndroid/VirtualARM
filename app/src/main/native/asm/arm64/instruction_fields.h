@@ -414,6 +414,7 @@ namespace Instructions::A64 {
 #undef FIELD
         };
 
+        AArch64Inst() = default;
         AArch64Inst(u32 raw);
     };
 

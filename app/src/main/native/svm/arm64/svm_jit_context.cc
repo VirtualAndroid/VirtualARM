@@ -66,6 +66,11 @@ LabelAllocator::~LabelAllocator() {
 
 void LabelAllocator::SetDestBuffer(VAddr addr) {
     dest_buffer_start_ = addr;
+    assert(dest_buffer_start_);
+    for (auto label : labels_outstanding_) {
+        ptrdiff_t offset = label.target - dest_buffer_start_;
+        __ BindToOffset(label.label, offset);
+    }
 }
 
 void LabelAllocator::Reset() {
@@ -73,6 +78,7 @@ void LabelAllocator::Reset() {
         delete label;
     }
     labels_.clear();
+    labels_outstanding_.clear();
     dest_buffer_start_ = 0;
     dispatcher_label_ = AllocLabel();
     page_lookup_label_ = AllocLabel();
@@ -115,6 +121,12 @@ void LabelAllocator::BindMapAddress(VAddr addr) {
     __ BindToOffset(map_address_label_, offset);
 }
 
+Label *LabelAllocator::AllocOutstanding(VAddr target) {
+    auto label = AllocLabel();
+    labels_outstanding_.push_back({target, label});
+    return label;
+}
+
 
 JitContext::JitContext(const SharedPtr<Instance> &instance) : instance_{instance}, reg_ctx_{
         XRegister::GetXRegFromCode(instance->GetJitConfig().context_reg)}, reg_forward_{
@@ -123,7 +135,7 @@ JitContext::JitContext(const SharedPtr<Instance> &instance) : instance_{instance
 }
 
 void JitContext::SetPC(VAddr pc) {
-    pc_ = reinterpret_cast<Instructions::A64::AArch64Inst *>(pc);
+    pc_ = pc;
 }
 
 const VRegister &JitContext::GetVRegister(u8 code) {
@@ -216,7 +228,7 @@ void JitContext::MarkReturn() {
     Set(lr, ret_addr);
     auto jit_cache = instance_->FindAndJit(ret_addr);
     if (jit_cache && !jit_cache->disabled) {
-        code_find_table_->FillCodeAddress(ret_addr, jit_cache->Data().stub_addr);
+        code_find_table_->FillCodeAddress(ret_addr, jit_cache->Data().GetStub());
     }
 }
 
@@ -305,11 +317,22 @@ void JitContext::Forward(VAddr addr) {
     __ Push(reg_forward_);
     __ Mov(reg_forward_, addr);
     __ Str(reg_forward_, MemOperand(register_alloc_.ContextPtr(), OFFSET_CTX_A64_PC));
-    // Step 1: search in this module, found direct to stub
     CheckTicks();
-    // Step 2: if no stub
+
+    // Step 1: search in this module, found direct to stub
+
+    auto jit_cache = instance_->FindAndJit(addr);
+    if (jit_cache && jit_cache->Data().GetStub() &&
+        current_cache_entry_->Data().code_block == jit_cache->Data().code_block) {
+        Label *next_block_stub = label_allocator_.AllocOutstanding(jit_cache->Data().GetStub());
+        __ B(next_block_stub);
+        return;
+    }
+
+    // Step 2: if no stub, search dispatch table
     __ Mov(reg_forward_, addr);
-    __ Str(reg_forward_, MemOperand(MemOperand(register_alloc_.ContextPtr(), OFFSET_CTX_A64_PC)));
+    __ Str(reg_forward_,
+           MemOperand(MemOperand(register_alloc_.ContextPtr(), OFFSET_CTX_A64_PC)));
     __ Mov(reg_forward_, global_stubs_->GetForwardCodeCache());
     __ Br(reg_forward_);
 }
@@ -362,13 +385,14 @@ void JitContext::CheckTicks() {
     register_alloc_.ReleaseTempX(tmp3);
 }
 
-void JitContext::Terminal(const Register& tmp) {
+void JitContext::Terminal(const Register &tmp) {
     MarkBlockEnd(tmp);
     AddTicks(current_block_ticks_, tmp);
+    terminal = true;
 }
 
 VAddr JitContext::PC() const {
-    return reinterpret_cast<VAddr>(pc_);
+    return pc_;
 }
 
 MacroAssembler &JitContext::Assembler() {
@@ -383,22 +407,38 @@ LabelAllocator &JitContext::GetLabelAlloc() {
     return label_allocator_;
 }
 
-void JitContext::BeginBlock() {
-
+void JitContext::BeginBlock(VAddr pc) {
+    terminal = false;
+    current_block_ticks_ = 0;
+    SetPC(pc);
+    Pop(reg_forward_);
 }
 
 void JitContext::EndBlock() {
+    assert(current_cache_entry_ && current_cache_entry_->Data().code_block);
+
+    auto jit_block_size = BlockCacheSize();
+    auto &entry_data = current_cache_entry_->Data();
+    auto buffer = entry_data.code_block->GetBuffer(entry_data.id_in_block);
+    assert(buffer);
+    auto buffer_start = entry_data.code_block->GetBufferStart(buffer);
+
+    label_allocator_.SetDestBuffer(buffer_start);
+    __ FinalizeCode();
+
+    std::memcpy(reinterpret_cast<void *>(buffer_start), __ GetBuffer()->GetStartAddress<void*>(), jit_block_size);
+    ClearCachePlatform(buffer_start, jit_block_size);
+
+    entry_data.ready = true;
+
     __ Reset();
     register_alloc_.Reset();
     label_allocator_.Reset();
+    current_cache_entry_ = nullptr;
 }
 
-Instructions::A64::AArch64Inst *JitContext::Instr() {
-    return pc_;
-}
-
-const Instance &JitContext::GetInstance() const {
-    return *instance_;
+Instructions::A64::AArch64Inst JitContext::Instr() {
+    return *reinterpret_cast<Instructions::A64::AArch64Inst *>(pc_);
 }
 
 void JitContext::Interrupt(const InterruptHelp &interrupt) {
@@ -412,7 +452,22 @@ void JitContext::Interrupt(const InterruptHelp &interrupt) {
     __ Str(tmp, MemOperand(reg_ctx, OFFSET_OF(CPUContext, interrupt.data)));
     __ Mov(reg_forward_, instance_->GetGlobalStubs()->GetFullInterrupt());
     __ Br(reg_forward_);
-    EndBlock();
+}
+
+bool JitContext::Termed() const {
+    return terminal;
+}
+
+void JitContext::SetCacheEntry(JitCacheEntry *entry) {
+    current_cache_entry_ = entry;
+}
+
+void JitContext::Tick() {
+    current_block_ticks_++;
+}
+
+size_t JitContext::BlockCacheSize() {
+    return __ GetBuffer()->GetSizeInBytes();
 }
 
 QuickContext::QuickContext(const SharedPtr<Instance> &instance) : JitContext(instance) {
@@ -421,22 +476,22 @@ QuickContext::QuickContext(const SharedPtr<Instance> &instance) : JitContext(ins
 
 const Register &QuickContext::LoadContextPtr() {
     const auto &context_reg = reg_ctx_;
-    __ Push(context_reg);
-    __ Mrs(context_reg, TPIDR_EL0);
-    __ Ldr(context_reg, MemOperand(context_reg, CTX_TLS_SLOT * 8));
-    // save tmp0, tmp1
-    __ Str(x16, MemOperand(context_reg, x16.RealCode() * 8));
-    __ Pop(x16);
-    __ Str(x16, MemOperand(context_reg, context_reg.RealCode() * 8));
-    // restore tmp0
-    __ Ldr(x16, MemOperand(context_reg, x16.RealCode() * 8));
+//    __ Push(context_reg);
+//    __ Mrs(context_reg, TPIDR_EL0);
+//    __ Ldr(context_reg, MemOperand(context_reg, CTX_TLS_SLOT * 8));
+//    // save tmp0, tmp1
+//    __ Str(x16, MemOperand(context_reg, x16.RealCode() * 8));
+//    __ Pop(x16);
+//    __ Str(x16, MemOperand(context_reg, context_reg.RealCode() * 8));
+//    // restore tmp0
+//    __ Ldr(x16, MemOperand(context_reg, x16.RealCode() * 8));
     register_alloc_.MarkInUsed(context_reg);
     return context_reg;
 }
 
 void QuickContext::ClearContextPtr(const Register &context) {
-    __ Ldr(context, MemOperand(context, 8 * context.RealCode()));
-    register_alloc_.MarkInUsed(context, false);
+//    __ Ldr(context, MemOperand(context, 8 * context.RealCode()));
+//    register_alloc_.MarkInUsed(context, false);
 }
 
 ContextWithMmu::ContextWithMmu(const SharedPtr<Instance> &instance)
@@ -450,7 +505,8 @@ void ContextWithMmu::LookupPageTable(const Register &rt, const VirtualAddress &v
     Label *label_end = label_allocator_.AllocLabel();
     const auto &mmu_config = instance_->GetMmuConfig();
     if (!va.ConstAddress()) {
-        __ Str(va.VARegister(), MemOperand(register_alloc_.ContextPtr(), OFFSET_CTX_A64_QUERY_PAGE));
+        __ Str(va.VARegister(),
+               MemOperand(register_alloc_.ContextPtr(), OFFSET_CTX_A64_QUERY_PAGE));
     }
     if (mmu_->GetLevel() == 1) {
         if (va.ConstAddress()) {
@@ -487,7 +543,8 @@ void ContextWithMmu::LookupPageTable(const Register &rt, const VirtualAddress &v
     Push(rt);
     Push(reg_forward_);
     __ Mov(reg_forward_, InterruptHelp::PageFatal);
-    __ Str(reg_forward_.W(), MemOperand(register_alloc_.ContextPtr(), OFFSET_OF(CPUContext, interrupt.reason)));
+    __ Str(reg_forward_.W(),
+           MemOperand(register_alloc_.ContextPtr(), OFFSET_OF(CPUContext, interrupt.reason)));
     if (va.ConstAddress()) {
         __ Mov(reg_forward_, va.Address());
         __ Str(reg_forward_, MemOperand(register_alloc_.ContextPtr(), OFFSET_CTX_A64_QUERY_PAGE));
@@ -525,6 +582,10 @@ void ContextWithMmu::LookupTLB(const Register &rt, const VirtualAddress &va, Lab
     }
     register_alloc_.ReleaseTempX(tmp1);
     register_alloc_.ReleaseTempX(tmp2);
+}
+
+Instructions::A64::AArch64Inst ContextWithMmu::Instr() {
+    return mmu_->Read<Instructions::A64::AArch64Inst>(pc_);
 }
 
 RegisterGuard::RegisterGuard(const ContextA64 &context, const Register &target) : context_(context),

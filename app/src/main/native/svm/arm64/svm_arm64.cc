@@ -12,7 +12,8 @@ Instance::Instance() {
     context_config_ = {
             .jit_thread_count = 2,
             .context_reg = 30, // lr
-            .forward_reg = 16
+            .forward_reg = 16,
+            .protect_code = true
     };
     mmu_config_ = {
             .enable = false,
@@ -23,8 +24,8 @@ Instance::Instance() {
             .executable_bit = 2
     };
     code_find_table_ = SharedPtr<FindTable<VAddr>>(new FindTable<VAddr>(48, 2));
-    global_stubs_ = SharedPtr<GlobalStubs>(new GlobalStubs(this));
-    jit_cache_ = SharedPtr<JitCacheA64>(new JitCacheA64(0x10000, 0x1000));
+    global_stubs_ = SharedPtr<GlobalStubs>(new GlobalStubs(SharedFrom(this)));
+    jit_manager_ = SharedPtr<JitManager>(new JitManager(SharedFrom(this)));
     mmu_ = SharedPtr<A64MMU>(new A64MMU(mmu_config_.addr_width, mmu_config_.page_bits));
 }
 
@@ -40,25 +41,8 @@ const SharedPtr<GlobalStubs> &Instance::GetGlobalStubs() const {
     return global_stubs_;
 }
 
-Instance::JitCacheA64::Entry *Instance::FindJitCache(VAddr addr) {
-    return nullptr;
-}
-
-Instance::JitCacheA64::Entry *Instance::FindAndJit(VAddr addr) {
-    auto cache = jit_cache_->Emplace(addr);
-    SpinLockGuard guard(cache->Data().jit_lock);
-    if (!cache->Data().cache_start) {
-        // do jit
-    }
-    return cache;
-}
-
-Instance::JitCacheA64::Entry *Instance::CommitJitCache(const JitCacheA64::Entry &entry) {
-    return nullptr;
-}
-
-Instance::JitCacheA64::Entry *Instance::JitBlock(VAddr addr) {
-    return nullptr;
+JitCacheEntry *Instance::FindAndJit(VAddr addr) {
+    return jit_manager_->EmplaceJit(addr);
 }
 
 const MmuConfig &Instance::GetMmuConfig() const {
@@ -69,15 +53,6 @@ const SharedPtr<SVM::A64::A64MMU> &Instance::GetMmu() const {
     return mmu_;
 }
 
-
-JitCacheBlock::JitCacheBlock() {}
-
-JitCacheBlock::JitCacheBlock(VAddr stub_addr) : stub_addr(stub_addr) {
-
-}
-
-JitCacheBlock::~JitCacheBlock() {
-    // Destroy
-    SpinLockGuard guard(jit_lock);
-
+const SharedPtr<JitManager> &Instance::GetJitManager() const {
+    return jit_manager_;
 }

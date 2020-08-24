@@ -6,6 +6,7 @@
 
 #include <base/marcos.h>
 #include <vector>
+#include <optional>
 #include "tlb.h"
 
 namespace Memory {
@@ -176,7 +177,7 @@ namespace Memory {
             }
         }
 
-        PTE GetPage(AddrType vaddr) {
+        std::optional<PTE> GetPage(AddrType vaddr) {
             assert(vaddr % (1 << page_bits_) == 0);
             if (tlb_) {
                 PTE pte = tlb_->GetPage(vaddr);
@@ -210,6 +211,16 @@ namespace Memory {
             return {};
         }
 
+        std::optional<void*> GetPoint(const AddrType src_addr) {
+            AddrType page_index = src_addr >> page_bits_;
+            AddrType page_offset = src_addr & page_mask_;
+            auto pte = GetPage(page_index << page_bits_);
+            if (pte) {
+                return (*pte >> page_bits_) << page_bits_ + page_offset;
+            }
+            return {};
+        }
+
         void ReadMemory(const AddrType src_addr, void *dest_buffer, const std::size_t size) {
             AddrType remaining_size = size;
             AddrType page_index = src_addr >> page_bits_;
@@ -220,7 +231,7 @@ namespace Memory {
                         std::min(static_cast<std::size_t>(page_size_) - page_offset, remaining_size);
                 const AddrType current_vaddr = (page_index << page_bits_) + page_offset;
 
-                auto pte = GetPage(page_index >> page_bits_);
+                auto pte = *GetPage(page_index >> page_bits_);
 
                 if (PageReadable(pte)) {
                     std::memset(dest_buffer, 0, copy_amount);
@@ -249,7 +260,7 @@ namespace Memory {
                         std::min(static_cast<std::size_t>(page_size_) - page_offset, remaining_size);
                 const AddrType current_vaddr = (page_index << page_bits_) + page_offset;
 
-                auto pte = GetPage(current_vaddr);
+                auto pte = *GetPage(current_vaddr);
 
                 if (!PageWritable(pte)) {
                     InvalidWrite(current_vaddr, copy_amount);

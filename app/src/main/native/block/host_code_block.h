@@ -38,17 +38,23 @@ namespace Jit {
         BaseBlock(VAddr start, VAddr size);
 
         VAddr GetBufferStart(u16 id);
-        VAddr GetBufferStart(Buffer &buffer);
-        VAddr GetBufferEnd(Buffer &buffer);
 
-        Buffer &GetBuffer(u16 id);
+        VAddr GetBufferStart(Buffer *buffer);
 
-        virtual Buffer &AllocCodeBuffer(VAddr source);
-        virtual void FlushCodeBuffer(Buffer &buffer, u32 size);
+        VAddr GetBufferEnd(Buffer *buffer);
+
+        Buffer *GetBuffer(u16 id);
+
+        virtual Buffer* AllocCodeBuffer(VAddr source);
+
+        virtual void FlushCodeBuffer(Buffer *buffer, u32 size);
+
         void Align(u32 size);
+
         virtual bool SaveToDisk(std::string path);
 
         u16 GetCurrentId() const;
+
         std::mutex &Lock();
 
         VAddr Base();
@@ -60,7 +66,6 @@ namespace Jit {
         u16 current_buffer_id_{0};
         u32 current_offset_{0};
         std::array<Buffer, MAX_BUFFER> buffers_;
-        std::map<VAddr, u16> buffers_map_;
     };
 
     namespace A64 {
@@ -69,13 +74,11 @@ namespace Jit {
          * 考虑到指令的可修改性
          * 我们需要一个中间人来分发代码
          * 当指令被修改时，我们生成新的指令，并且将分发表指向新指令缓存
-         * 直接修改旧缓存，当有其他线程还在执行时会引起不必要的错误
          */
 
         struct Dispatcher {
             // B label
-            u32 go_with_pop_forward_;
-            u32 go_without_pop_forward_;
+            u32 go_forward_;
         };
 
         struct DispatcherTable {
@@ -87,15 +90,19 @@ namespace Jit {
         class CodeBlock : public BaseBlock {
         public:
             CodeBlock(u32 forward_reg_rec_size, u32 block_size = BLOCK_SIZE_A64);
+
             virtual ~CodeBlock();
 
-            void FlushCodeBuffer(Buffer &buffer, u32 size) override;
+            void FlushCodeBuffer(Buffer *buffer, u32 size) override;
 
-            void GenDispatcher(Buffer &buffer);
-            VAddr GetDispatcherAddr(Buffer &buffer, bool with_pop_forward = true);
-            VAddr GetDispatcherOffset(Buffer &buffer, bool with_pop_forward = true);
+            void GenDispatcher(Buffer *buffer);
+
+            VAddr GetDispatcherAddr(Buffer*buffer);
+
+            VAddr GetDispatcherOffset(Buffer *buffer);
 
             void SetModuleMapAddress(VAddr addr);
+
             VAddr ModuleMapAddressAddress();
 
         protected:

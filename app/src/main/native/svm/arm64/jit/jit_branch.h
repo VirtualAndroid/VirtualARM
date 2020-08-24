@@ -40,7 +40,7 @@ namespace Jit::A64 {
         } else if constexpr (flags & BrunchFlags::TestBit) {
             {
                 RegisterGuard guard(context, context->GetXRegister(rt));
-                auto bit = context->Instr()->b40 | (context->Instr()->b5 << 5);
+                auto bit = context->Instr().b40 | (context->Instr().b5 << 5);
                 if (flags & Negate) {
                     __ Tbnz(guard.Target(), bit, branch);
                 } else {
@@ -55,7 +55,6 @@ namespace Jit::A64 {
 
         __ Bind(branch);
         context->Forward(target);
-        context->EndBlock();
     }
 
     template <unsigned flags = 0>
@@ -71,7 +70,6 @@ namespace Jit::A64 {
         auto target = context->GetXRegister(reg_target);
 
         context->Forward(target);
-        context->EndBlock();
     }
 #undef __
 }

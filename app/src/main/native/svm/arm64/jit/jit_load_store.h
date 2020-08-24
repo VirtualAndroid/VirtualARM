@@ -52,10 +52,10 @@ namespace Jit::A64 {
             } else if constexpr (sizeof(T) == 4) {
                 __ Ldr(rt_v.S(), MemOperand(tmp));
             } else {
-                __ Emit(context->Instr()->raw);
+                __ Emit(context->Instr().raw);
             }
         } else if constexpr (flags & Prfm) {
-            __ Prfm(PrefetchOperation(context->Instr()->Rt), MemOperand(tmp));
+            __ Prfm(PrefetchOperation(context->Instr().Rt), MemOperand(tmp));
         } else if constexpr (flags & LoadSigned) {
             RegisterGuard guard(context, context->GetXRegister(rt));
             guard.Dirty();
@@ -68,7 +68,7 @@ namespace Jit::A64 {
             } else if constexpr (sizeof(T) == 4) {
                 __ Ldr(guard.Target().W(), MemOperand(tmp));
             } else {
-                __ Emit(context->Instr()->raw);
+                __ Emit(context->Instr().raw);
             }
         }
 
