@@ -33,7 +33,7 @@ namespace Jit::A64 {
             }
             auto buffer = code_block->GetBuffer(id_in_block);
             if (buffer) {
-                code_block->GetDispatcherAddr(buffer);
+                return code_block->GetDispatcherAddr(buffer);
             }
             return 0;
         }
@@ -66,6 +66,7 @@ namespace Jit::A64 {
     private:
 
         void JitUnsafe(JitCacheEntry *entry);
+        void EmplaceCacheAllocation(JitCacheEntry *entry);
 
         SharedPtr<Instance> instance_;
         SharedPtr<JitCacheA64> jit_cache_;

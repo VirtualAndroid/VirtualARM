@@ -45,7 +45,7 @@ namespace Jit::A64 {
 
         bool InUsed(const Register &x);
 
-        void Reset(JitContext *context);
+        void Initialize(JitContext *context);
 
     private:
         bool in_used_[32]{false};
@@ -61,8 +61,6 @@ namespace Jit::A64 {
         ~LabelAllocator();
 
         void SetDestBuffer(VAddr addr);
-
-        void Reset();
 
         Label *AllocLabel();
 
@@ -118,13 +116,13 @@ namespace Jit::A64 {
         const bool const_addr_;
     };
 
-    class JitContext : public BaseObject, NonCopyable {
+    class JitContext : public NonCopyable {
     public:
-        JitContext(const SharedPtr<SVM::A64::Instance> &instance);
+        JitContext(SVM::A64::Instance &instance);
 
-        virtual const Register &LoadContextPtr() {};
+        const Register &LoadContextPtr();
 
-        virtual void ClearContextPtr(const Register &context) {};
+        void ClearContextPtr(const Register &context);
 
         const Register &GetXRegister(u8 code, bool may_sp = false);
 
@@ -138,13 +136,13 @@ namespace Jit::A64 {
 
         void Set(const Register &x, u32 value);
 
-        virtual void Push(const Register &reg);
+        void Push(const Register &reg);
 
-        virtual void Pop(const Register &reg);
+        void Pop(const Register &reg);
 
-        virtual void Push(const Register &reg1, const Register &reg2);
+        void Push(const Register &reg1, const Register &reg2);
 
-        virtual void Pop(const Register &reg1, const Register &reg2);
+        void Pop(const Register &reg1, const Register &reg2);
 
         void SaveContext();
 
@@ -162,7 +160,7 @@ namespace Jit::A64 {
 
         void Interrupt(const InterruptHelp &interrupt);
 
-        virtual void LookupPageTable(const Register &rt, const VirtualAddress &va, bool write = false) {};
+        void LookupPageTable(const Register &rt, const VirtualAddress &va, bool write = false);
 
         void BeginBlock(VAddr start);
 
@@ -184,56 +182,32 @@ namespace Jit::A64 {
 
         LabelAllocator &GetLabelAlloc();
 
-    protected:
+    private:
         void MarkBlockEnd(Register tmp = NoReg);
         void AddTicks(u64 ticks, Register tmp = NoReg);
 
-        SharedPtr<Instance> instance_;
+        Instance &instance_;
         const Register &reg_ctx_;
         const Register &reg_forward_;
-        RegisterAllocator register_alloc_;
-        // must pic code
+        GlobalStubs &global_stubs_;
         MacroAssembler masm_{PositionIndependentCode};
+        RegisterAllocator register_alloc_;
         LabelAllocator label_allocator_{masm_};
-        SharedPtr<FindTable<VAddr>> code_find_table_;
-        SharedPtr<GlobalStubs> global_stubs_;
-        VAddr pc_;
-        u32 current_block_ticks_;
+        VAddr pc_{};
+        u32 current_block_ticks_{0};
         bool terminal{false};
-        JitCacheEntry *current_cache_entry_;
-    };
+        JitCacheEntry *current_cache_entry_{};
 
-    class QuickContext : public JitContext {
-    public:
-        QuickContext(const SharedPtr<Instance> &instance);
-
-        const Register &LoadContextPtr() override;
-
-        void ClearContextPtr(const Register &context) override;
-    };
-
-    class ContextWithMmu : public JitContext {
-    public:
-
-        ContextWithMmu(const SharedPtr<Instance> &instance);
-
-        const Register &LoadContextPtr() override;
-
-        void LookupPageTable(const Register &rt, const VirtualAddress &va, bool write) override;
-
-        Instructions::A64::AArch64Inst Instr() override;
-
-    private:
-
+        // mmu
         void LookupTLB(const Register &rt, const VirtualAddress &va, Label *miss_cache);
 
-        u8 address_bits_unused_;
-        u8 page_bits_;
-        u8 tlb_bits_;
-        SharedPtr<A64MMU> mmu_;
+        u8 address_bits_unused_{};
+        u8 page_bits_{};
+        u8 tlb_bits_{};
+        A64MMU *mmu_{};
     };
 
-    using ContextA64 = SharedPtr<JitContext>;
+    using ContextA64 = JitContext*;
 
     class RegisterGuard {
     public:

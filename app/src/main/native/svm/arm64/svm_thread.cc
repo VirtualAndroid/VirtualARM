@@ -10,15 +10,10 @@ using namespace Jit::A64;
 using namespace Decode::A64;
 using namespace SVM::A64;
 
-static thread_local SharedPtr<ThreadContext> current_context_;
+static thread_local SharedPtr<ThreadContext> current_context_{};
 
 ThreadContext::ThreadContext(const SharedPtr<Instance> &instance) : instance_(instance) {
-    if (instance->GetMmuConfig().enable) {
-        jit_context_ = SharedPtr<JitContext>(new ContextWithMmu(instance));
-    } else {
-        jit_context_ = SharedPtr<JitContext>(new QuickContext(instance));
-    }
-    jit_visitor_ = std::make_shared<VixlJitDecodeVisitor>(jit_context_);
+    jit_visitor_ = std::make_shared<VixlJitDecodeVisitor>();
     jit_decode_ = std::make_shared<vixl::aarch64::Decoder>();
     jit_decode_->AppendVisitor(jit_visitor_.get());
 }
@@ -32,19 +27,37 @@ void ThreadContext::RegisterCurrent() {
     current_context_ = SharedFrom(this);
 }
 
-const ContextA64 &ThreadContext::GetJitContext() const {
-    return jit_context_;
+const ContextA64 ThreadContext::GetJitContext() const {
+    return jit_contexts_.top();
 }
 
 bool ThreadContext::JitInstr(VAddr addr) {
-    jit_context_->SetPC(addr);
+    jit_contexts_.top()->SetPC(addr);
     jit_decode_->Decode(reinterpret_cast<Instruction*>(addr));
-    return !jit_context_->Termed();
+    return !jit_contexts_.top()->Termed();
+}
+
+
+void ThreadContext::PushJitContext(ContextA64 context) {
+    jit_contexts_.push(context);
+    jit_visitor_->PushContext(context);
+}
+
+void ThreadContext::PopJitContext() {
+    jit_contexts_.pop();
+    jit_visitor_->PopContext();
 }
 
 EmuThreadContext::EmuThreadContext(const SharedPtr<Instance> &instance) : ThreadContext(instance) {
     // 512KB
     interrupt_stack_.resize(512 * 1024);
+    cpu_context_.dispatcher_table = instance->GetCodeFindTable()->TableEntryPtr();
+    auto mmu_ = instance->GetMmu();
+    if (mmu_) {
+        cpu_context_.page_table = mmu_->TopPageTable();
+        cpu_context_.tlb = mmu_->Tbl()->TLBTablePtr();
+    }
+    cpu_context_.dispatcher_table = instance->GetCodeFindTable()->TableEntryPtr();
     cpu_context_.interrupt_sp = reinterpret_cast<VAddr>(interrupt_stack_.data());
 }
 
@@ -52,7 +65,7 @@ void EmuThreadContext::Run(size_t ticks) {
     cpu_context_.ticks_max += ticks;
     auto jit_cache = instance_->FindAndJit(cpu_context_.pc);
     if (jit_cache && jit_cache->Data().GetStub()) {
-        cpu_context_.forward = jit_cache->Data().GetStub();
+        cpu_context_.code_cache = jit_cache->Data().GetStub();
     }
     instance_->GetGlobalStubs()->RunCode(&cpu_context_);
 }

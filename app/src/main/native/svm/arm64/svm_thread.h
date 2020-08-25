@@ -8,6 +8,7 @@
 #include "svm_jit_context.h"
 #include "svm_arm64.h"
 #include <thread>
+#include <stack>
 
 namespace Decode::A64 {
     class VixlJitDecodeVisitor;
@@ -38,16 +39,20 @@ namespace SVM::A64 {
             abort();
         };
 
-        const ContextA64 &GetJitContext() const;
+        const ContextA64 GetJitContext() const;
+
+        void PushJitContext(ContextA64 context);
+
+        void PopJitContext();
 
         // if false : end of block
         bool JitInstr(VAddr addr);
 
     protected:
         SharedPtr<Instance> instance_;
-        Jit::A64::ContextA64 jit_context_;
         std::shared_ptr<Decode::A64::VixlJitDecodeVisitor> jit_visitor_;
         std::shared_ptr<vixl::aarch64::Decoder> jit_decode_;
+        std::stack<Jit::A64::ContextA64> jit_contexts_;
     };
 
     class EmuThreadContext : public ThreadContext {

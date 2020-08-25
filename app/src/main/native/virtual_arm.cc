@@ -20,6 +20,8 @@ void *TestCase1() {
     __ Bind(&loop);
     __ Push(x0, x1, x2, x3);
     __ Sub(x1, x2, x3);
+    __ Mov(x1, x2);
+    __ Sub(x3, x4, x8);
     __ Cbz(x1, &true_label);
     // do some
     __ Add(x1, x1, 8);
@@ -27,13 +29,17 @@ void *TestCase1() {
     __ Add(x1, x1, 8);
     __ Add(x1, x1, 8);
     __ Bind(&true_label);
-    __ Pop(x3, x2, x1, x0);
+    __ Add(x1, x1, 8);
+    __ Add(x1, x2, 8);
+    __ Add(x1, x3, 8);
     __ Bl(&loop);
+    __ Ret();
 
     __ FinalizeCode();
     return __ GetBuffer()->GetStartAddress<void*>();
 }
 
+bool debug = true;
 
 extern "C"
 JNIEXPORT void JNICALL
@@ -42,9 +48,11 @@ load_test(JNIEnv *env, jobject instance) {
     svm->Initialize();
     auto context = SharedPtr<EmuThreadContext>(new EmuThreadContext(svm));
     context->RegisterCurrent();
+    context->GetCpuContext()->cpu_registers[0].X = 1;
     context->GetCpuContext()->pc = reinterpret_cast<u64>(TestCase1());
     context->GetCpuContext()->sp = reinterpret_cast<u64>(malloc(256 * 1024));
-    context->Run(100);
+    context->Run(5);
+    abort();
 }
 
 static bool registerNativeMethods(JNIEnv *env, const char *className, JNINativeMethod *jniMethods, int methods) {

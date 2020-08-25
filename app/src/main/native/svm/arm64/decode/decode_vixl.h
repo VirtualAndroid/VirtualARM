@@ -6,6 +6,7 @@
 
 #include <aarch64/macro-assembler-aarch64.h>
 #include <svm/arm64/svm_jit_context.h>
+#include <stack>
 
 #define VISITOR_LIST_THAT_INTEREST(V)     \
   V(CompareBranch)                      \
@@ -29,9 +30,9 @@ namespace Decode::A64 {
 
     class VixlJitDecodeVisitor : public DecoderVisitor {
     public:
-        VixlJitDecodeVisitor(ContextA64 &context);
+        VixlJitDecodeVisitor() = default;
 
-        ~VixlJitDecodeVisitor() override;
+        ~VixlJitDecodeVisitor() = default;
 
         // Declare all Visitor functions.
 #define DECLARE(A) \
@@ -52,8 +53,17 @@ namespace Decode::A64 {
         VISITOR_LIST_THAT_DONT_RETURN_IN_DEBUG_MODE(DECLARE)
 #undef DECLARE
 
+        void PushContext(Jit::A64::ContextA64 context);
+
+        void PopContext();
+
     private:
-        Jit::A64::ContextA64 context_;
+
+        constexpr Jit::A64::ContextA64 Context() {
+            return jit_contexts_.top();
+        }
+
+        std::stack<Jit::A64::ContextA64> jit_contexts_;
     };
 
 }

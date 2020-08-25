@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.4.1)
 project(VirtualARM)
 
 set(CMAKE_CXX11_EXTENSION_COMPILE_OPTION "-std=c++17")
-SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3")
-SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Wno-narrowing")
+SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-narrowing")
 ENABLE_LANGUAGE(ASM)
 
 include_directories(.)

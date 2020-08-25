@@ -2,6 +2,7 @@
 // Created by SwiftGan on 2020/8/23.
 //
 
+#include <base/log.h>
 #include "svm_jit_manager.h"
 #include "svm_thread.h"
 
@@ -23,15 +24,7 @@ const SharedPtr<Instance> &JitManager::GetInstance() const {
 
 
 void JitManager::CommitJit(JitCacheEntry *entry) {
-    // alloc stub
-    auto &code_block = entry->Data().code_block;
-    if (!code_block) {
-        code_block = instance_->PeekCacheBlock(entry->addr_start);
-    }
-    if (!entry->Data().id_in_block) {
-        auto buffer = code_block->AllocCodeBuffer(entry->addr_start);
-        entry->Data().id_in_block = buffer->id_;
-    }
+    EmplaceCacheAllocation(entry);
     queue_.push(entry);
 }
 
@@ -59,32 +52,30 @@ void JitManager::JitFromQueue() {
 }
 
 void JitManager::JitUnsafe(JitCacheEntry *entry) {
+    LOGE("JitUnsafe: %llu", entry->addr_start);
     const auto &thread_context = ThreadContext::Current();
-    const auto &jit_context = thread_context->GetJitContext();
     auto pc = entry->addr_start;
     // peek code block
     auto &code_block = entry->Data().code_block;
-    if (!code_block) {
-        code_block = instance_->PeekCacheBlock(entry->addr_start);
-    }
-    Buffer *buffer = nullptr;
-    if (!entry->Data().id_in_block) {
-        buffer = code_block->AllocCodeBuffer(entry->addr_start);
-        entry->Data().id_in_block = buffer->id_;
-    } else {
-        buffer = code_block->GetBuffer(entry->Data().id_in_block);
-    }
-    jit_context->SetCacheEntry(entry);
-    jit_context->BeginBlock(entry->addr_start);
+
+    EmplaceCacheAllocation(entry);
+    auto buffer = code_block->GetBuffer(entry->Data().id_in_block);
+    JitContext jit_context(*instance_);
+    jit_context.SetCacheEntry(entry);
+    jit_context.BeginBlock(entry->addr_start);
+    thread_context->PushJitContext(&jit_context);
+
     while (thread_context->JitInstr(pc)) {
         pc += 4;
-        jit_context->Tick();
+        jit_context.Tick();
     }
+
+    thread_context->PopJitContext();
     entry->addr_end = pc;
     // alloc
-    auto cache_size = jit_context->BlockCacheSize();
+    auto cache_size = jit_context.BlockCacheSize();
     code_block->FlushCodeBuffer(buffer, cache_size);
-    jit_context->EndBlock();
+    jit_context.EndBlock();
 }
 
 JitCacheEntry *JitManager::EmplaceJit(VAddr addr) {
@@ -97,19 +88,29 @@ JitCacheEntry *JitManager::EmplaceJit(VAddr addr) {
         if (entry->Data().ready) {
             return entry;
         }
-        if (ThreadContext::Current()->Type() == EnumThreadType &&
-            JitNestGuard::CurrentNest() < 4) {
-            // do jit now
-            JitNestGuard nest_guard;
-            JitUnsafe(entry);
-        } else {
+        // do jit now
+        JitNestGuard nest_guard;
+        bool is_emu_thread = ThreadContext::Current()->Type() == EnumThreadType;
+        if (!is_emu_thread || JitNestGuard::CurrentNest() > 8) {
             CommitJit(entry);
+        } else {
+            JitUnsafe(entry);
         }
     }
     assert(entry);
     return entry;
 }
 
+void JitManager::EmplaceCacheAllocation(JitCacheEntry *entry) {
+    auto &code_block = entry->Data().code_block;
+    if (!code_block) {
+        code_block = instance_->PeekCacheBlock(entry->addr_start);
+    }
+    if (!entry->Data().id_in_block) {
+        auto buffer = code_block->AllocCodeBuffer(entry->addr_start);
+        entry->Data().id_in_block = buffer->id_;
+    }
+}
 
 static thread_local int jit_nested_{0};
 
