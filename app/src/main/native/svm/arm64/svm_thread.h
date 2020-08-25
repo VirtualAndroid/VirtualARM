@@ -33,6 +33,8 @@ namespace SVM::A64 {
 
         const static SharedPtr<ThreadContext> &Current();
 
+        const SharedPtr<Instance> &GetInstance() const;
+
         void RegisterCurrent();
 
         virtual ThreadType Type() {
@@ -64,6 +66,13 @@ namespace SVM::A64 {
         CPUContext *GetCpuContext();
 
         ThreadType Type() override;
+
+        // User Callbacks
+        virtual void Interrupt(InterruptHelp &interrupt) {};
+
+        virtual void Fallback() {};
+
+        virtual u64 GetClockTicks() { return 0; };
 
     private:
         CPUContext cpu_context_;

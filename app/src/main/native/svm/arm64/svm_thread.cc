@@ -48,9 +48,14 @@ void ThreadContext::PopJitContext() {
     jit_visitor_->PopContext();
 }
 
+const SharedPtr<Instance> &ThreadContext::GetInstance() const {
+    return instance_;
+}
+
 EmuThreadContext::EmuThreadContext(const SharedPtr<Instance> &instance) : ThreadContext(instance) {
     // 512KB
     interrupt_stack_.resize(512 * 1024);
+    cpu_context_.context_ptr = reinterpret_cast<VAddr>(this);
     cpu_context_.dispatcher_table = instance->GetCodeFindTable()->TableEntryPtr();
     auto mmu_ = instance->GetMmu();
     if (mmu_) {

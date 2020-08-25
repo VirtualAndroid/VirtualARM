@@ -8,6 +8,7 @@
 #include "svm_global_stubs.h"
 #include "svm_arm64.h"
 #include "block/code_find_table.h"
+#include "svm_thread.h"
 
 #define __ masm_.
 
@@ -17,14 +18,30 @@ using namespace CPU::A64;
 constexpr static size_t stub_memory_size = PAGE_SIZE;
 
 CPUContext *GlobalStubs::InterruptStub(CPUContext *context) {
+    auto thread_ctx = reinterpret_cast<EmuThreadContext *>(context->context_ptr);
+    thread_ctx->Interrupt(context->interrupt);
+    auto jit_cache = thread_ctx->GetInstance()->FindAndJit(context->pc);
+    if (jit_cache && jit_cache->Data().GetStub()) {
+        context->code_cache = jit_cache->Data().GetStub();
+    } else {
+        thread_ctx->Fallback();
+    }
     return context;
 }
 
 CPUContext *GlobalStubs::CodeCacheMissStub(CPUContext *context) {
+    auto thread_ctx = reinterpret_cast<EmuThreadContext *>(context->context_ptr);
+    auto jit_cache = thread_ctx->GetInstance()->FindAndJit(context->pc);
+    if (jit_cache && jit_cache->Data().GetStub()) {
+        context->code_cache = jit_cache->Data().GetStub();
+    } else {
+        thread_ctx->Fallback();
+    }
     return context;
 }
 
 CPU::A64::CPUContext *GlobalStubs::ABIStub(CPU::A64::CPUContext *context) {
+
     return context;
 }
 
@@ -40,7 +57,6 @@ GlobalStubs::GlobalStubs(SharedPtr<Instance> instance) : instance_{instance}, co
     abi_interrupt_ = code_memory_ + 512 * 3;
     forward_code_cache_ = code_memory_ + 512 * 4;
     // do builds
-    *reinterpret_cast<int *>(code_memory_) = 1;
     BuildABIInterruptStub();
     BuildFullInterruptStub();
     BuildReturnToHostStub();
@@ -58,7 +74,7 @@ void GlobalStubs::RunCode(CPUContext *context) {
 }
 
 VAddr GlobalStubs::GetFullInterrupt() const {
-    return return_to_host_;
+    return full_interrupt_;
 }
 
 VAddr GlobalStubs::GetForwardCodeCache() const {
@@ -323,7 +339,7 @@ void GlobalStubs::BuildFullInterruptStub() {
     __ Mov(sp, tmp);
 
     __ Mov(x0, context_reg_);
-    __ Mov(forward_reg_, reinterpret_cast<VAddr>(ABIStub));
+    __ Mov(forward_reg_, reinterpret_cast<VAddr>(InterruptStub));
     __ Blr(forward_reg_);
 
     // If returned, direct to kernel_to_guest_trampoline

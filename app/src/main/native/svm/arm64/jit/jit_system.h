@@ -45,6 +45,12 @@ namespace Jit::A64 {
             case TPIDRRO_EL0:
                 context_offset = OFFSET_CTX_A64_TPIDRRO;
                 break;
+            case CNTFREQ_EL0:
+                context_offset = OFFSET_OF(CPUContext, cntfreq);
+                break;
+            case CNTPCT_EL0:
+                context_offset = OFFSET_OF(CPUContext, ticks_now);
+                break;
             default:
                 context_offset = -1;
                 break;

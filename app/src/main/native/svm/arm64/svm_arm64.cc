@@ -13,7 +13,8 @@ Instance::Instance() {
             .jit_thread_count = 2,
             .context_reg = 30, // lr
             .forward_reg = 16,
-            .protect_code = true
+            .protect_code = true,
+            .use_host_clock = true
     };
     mmu_config_ = {
             .enable = false,

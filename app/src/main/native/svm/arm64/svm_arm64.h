@@ -26,6 +26,7 @@ namespace SVM::A64 {
         u8 forward_reg;
         u8 jit_thread_count;
         bool protect_code;
+        bool use_host_clock;
     };
 
     struct MmuConfig {

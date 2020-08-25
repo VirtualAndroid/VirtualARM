@@ -52,7 +52,6 @@ void JitManager::JitFromQueue() {
 }
 
 void JitManager::JitUnsafe(JitCacheEntry *entry) {
-    LOGE("JitUnsafe: %llu", entry->addr_start);
     const auto &thread_context = ThreadContext::Current();
     auto pc = entry->addr_start;
     // peek code block
@@ -72,7 +71,6 @@ void JitManager::JitUnsafe(JitCacheEntry *entry) {
 
     thread_context->PopJitContext();
     entry->addr_end = pc;
-    // alloc
     auto cache_size = jit_context.BlockCacheSize();
     code_block->FlushCodeBuffer(buffer, cache_size);
     jit_context.EndBlock();

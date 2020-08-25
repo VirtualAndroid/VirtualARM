@@ -406,7 +406,9 @@ enum SystemRegister {
   FPCR = SystemRegisterEncoder<3, 3, 4, 4, 0>::value,
   FPSR = SystemRegisterEncoder<3, 3, 4, 4, 1>::value,
   RNDR = SystemRegisterEncoder<3, 3, 2, 4, 0>::value,    // Random number.
-  RNDRRS = SystemRegisterEncoder<3, 3, 2, 4, 1>::value   // Reseeded random number.
+  RNDRRS = SystemRegisterEncoder<3, 3, 2, 4, 1>::value,   // Reseeded random number.
+  CNTPCT_EL0 = SystemRegisterEncoder<3, 3, 14, 0, 1>::value,
+  CNTFREQ_EL0 = SystemRegisterEncoder<3, 3, 14, 0, 0>::value
 };
 
 template<int op1, int crn, int crm, int op2>

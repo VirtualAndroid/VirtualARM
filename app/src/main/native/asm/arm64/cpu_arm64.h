@@ -108,6 +108,7 @@ namespace CPU::A64 {
             Svc,
             Hvc,
             Brk,
+            Hlt,
             ErrorInstr,
             PageFatal
         };
@@ -132,6 +133,7 @@ namespace CPU::A64 {
         u32 fpsr;
         u64 tpidr;
         u64 tpidrro;
+        u64 cntfreq;
         // dispatcher
         VAddr pre_pc;
         VAddr forward;
