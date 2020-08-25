@@ -19,6 +19,8 @@ namespace Jit::A64 {
 
 namespace SVM::A64 {
 
+    constexpr size_t default_jit_run_ticks = 0x1000;
+
     enum ThreadType {
         JitThreadType,
         EnumThreadType
@@ -44,19 +46,22 @@ namespace SVM::A64 {
     protected:
         SharedPtr<Instance> instance_;
         Jit::A64::ContextA64 jit_context_;
-        std::unique_ptr<Decode::A64::VixlJitDecodeVisitor> jit_visitor_;
-        std::unique_ptr<vixl::aarch64::Decoder> jit_decode_;
+        std::shared_ptr<Decode::A64::VixlJitDecodeVisitor> jit_visitor_;
+        std::shared_ptr<vixl::aarch64::Decoder> jit_decode_;
     };
 
     class EmuThreadContext : public ThreadContext {
     public:
         EmuThreadContext(const SharedPtr<Instance> &instance);
-        void Run();
+
+        void Run(size_t ticks = default_jit_run_ticks);
+
+        CPUContext *GetCpuContext();
 
         ThreadType Type() override;
 
     private:
-        CPUContext cpu_context;
+        CPUContext cpu_context_;
         std::vector<u8> interrupt_stack_;
     };
 
@@ -70,6 +75,7 @@ namespace SVM::A64 {
     class JitThread : public BaseObject {
     public:
         explicit JitThread(const SharedPtr<JitManager> &manager);
+
         virtual ~JitThread();
 
     private:

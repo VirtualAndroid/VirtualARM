@@ -13,7 +13,6 @@
 #include "block/host_code_block.h"
 #include "svm_jit_manager.h"
 
-using namespace vixl::aarch64;
 using namespace Jit::A64;
 using namespace CPU::A64;
 using namespace SVM::A64;
@@ -26,6 +25,8 @@ namespace SVM::A64 {
 }
 
 namespace Jit::A64 {
+
+    using namespace vixl::aarch64;
 
     class JitContext;
     class RegisterAllocator;
@@ -44,12 +45,12 @@ namespace Jit::A64 {
 
         bool InUsed(const Register &x);
 
-        void Reset();
+        void Reset(JitContext *context);
 
     private:
         bool in_used_[32]{false};
         JitContext *context_;
-        Register *context_ptr_;
+        Register context_ptr_ = NoReg;
     };
 
     class LabelAllocator {
@@ -213,7 +214,11 @@ namespace Jit::A64 {
 
     class ContextWithMmu : public JitContext {
     public:
+
         ContextWithMmu(const SharedPtr<Instance> &instance);
+
+        const Register &LoadContextPtr() override;
+
         void LookupPageTable(const Register &rt, const VirtualAddress &va, bool write) override;
 
         Instructions::A64::AArch64Inst Instr() override;

@@ -7,13 +7,13 @@
 #include <base/marcos.h>
 #include <aarch64/macro-assembler-aarch64.h>
 
-using namespace vixl::aarch64;
-
 namespace CPU::A64 {
     struct CPUContext;
 }
 
 namespace SVM::A64 {
+
+    using namespace vixl::aarch64;
 
     class Instance;
 

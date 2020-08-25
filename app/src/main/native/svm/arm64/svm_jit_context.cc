@@ -2,6 +2,7 @@
 // Created by SwiftGan on 2020/6/17.
 //
 
+#include <base/log.h>
 #include "svm_jit_context.h"
 #include "svm_arm64.h"
 
@@ -12,17 +13,17 @@ using namespace Jit::A64;
 #define __ masm_.
 
 const Register &RegisterAllocator::ContextPtr() {
-    if (!context_ptr_) {
-        context_ptr_ = const_cast<Register *>(&context_->LoadContextPtr());
-        MarkInUsed(*context_ptr_);
+    if (!context_ptr_.IsValid()) {
+        context_ptr_ = context_->LoadContextPtr();
+        MarkInUsed(context_ptr_);
     }
-    return *context_ptr_;
+    return context_ptr_;
 }
 
 void RegisterAllocator::ClearContext() {
-    if (context_ptr_) {
-        MarkInUsed(*context_ptr_, false);
-        context_->ClearContextPtr(*context_ptr_);
+    if (context_ptr_.IsValid()) {
+        MarkInUsed(context_ptr_, false);
+        context_->ClearContextPtr(context_ptr_);
     }
 }
 
@@ -50,8 +51,10 @@ bool RegisterAllocator::InUsed(const Register &x) {
     return in_used_[x.RealCode()];
 }
 
-void RegisterAllocator::Reset() {
-    std::memset(reinterpret_cast<void *>(in_used_[0]), 0, sizeof(in_used_));
+void RegisterAllocator::Reset(JitContext *context) {
+    context_ = context;
+    context_ptr_ = NoReg;
+    std::memset(reinterpret_cast<void *>(&in_used_[0]), 0, sizeof(in_used_));
 }
 
 LabelAllocator::LabelAllocator(MacroAssembler &masm) : masm_(masm) {
@@ -349,7 +352,7 @@ void JitContext::Forward(const Register &target) {
 }
 
 void JitContext::AddTicks(u64 ticks, Register tmp) {
-    constexpr static u64 max_imm_add = (1 << 12) - 1;
+    constexpr static u64 max_imm_add = (u64(1) << 12) - 1;
     assert(ticks <= max_imm_add);
     bool need_restore{false};
     if (!tmp.IsValid()) {
@@ -410,13 +413,15 @@ LabelAllocator &JitContext::GetLabelAlloc() {
 void JitContext::BeginBlock(VAddr pc) {
     terminal = false;
     current_block_ticks_ = 0;
+    __ Reset();
+    register_alloc_.Reset(this);
+    label_allocator_.Reset();
     SetPC(pc);
     Pop(reg_forward_);
 }
 
 void JitContext::EndBlock() {
-    assert(current_cache_entry_ && current_cache_entry_->Data().code_block);
-
+    assert(current_cache_entry_);
     auto jit_block_size = BlockCacheSize();
     auto &entry_data = current_cache_entry_->Data();
     auto buffer = entry_data.code_block->GetBuffer(entry_data.id_in_block);
@@ -430,10 +435,6 @@ void JitContext::EndBlock() {
     ClearCachePlatform(buffer_start, jit_block_size);
 
     entry_data.ready = true;
-
-    __ Reset();
-    register_alloc_.Reset();
-    label_allocator_.Reset();
     current_cache_entry_ = nullptr;
 }
 
@@ -586,6 +587,10 @@ void ContextWithMmu::LookupTLB(const Register &rt, const VirtualAddress &va, Lab
 
 Instructions::A64::AArch64Inst ContextWithMmu::Instr() {
     return mmu_->Read<Instructions::A64::AArch64Inst>(pc_);
+}
+
+const Register &ContextWithMmu::LoadContextPtr() {
+    return reg_ctx_;
 }
 
 RegisterGuard::RegisterGuard(const ContextA64 &context, const Register &target) : context_(context),

@@ -41,7 +41,7 @@ add_library(virtual_arm SHARED
         svm/arm64/svm_arm64.cc
 #        svm/arm64/dbi_jit_arm64.cc
 #        svm/arm64/dbi_context_arm64.cc
-        svm/arm64/svm_mmu.cpp
+        svm/arm64/svm_mmu.cc
 #        svm/arm64/dbi_trampolines_arm64.cc
         svm/arm64/svm_diskcache_loader.cc
         svm/arm64/svm_jit_context.cc
@@ -50,9 +50,9 @@ add_library(virtual_arm SHARED
         svm/arm64/svm_block_stubs.cc
         svm/arm64/svm_thread.cc
         svm/arm64/svm_jit_manager.cc
-        block/host_code_block.cpp
+        block/host_code_block.cc
         block/code_find_table.cc
-        block/module.cc
+        block/code_set.cc
         block/code_block.cc
         memory/mmu.cc
         memory/tlb.cc

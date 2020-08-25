@@ -9,7 +9,7 @@ using namespace SVM::A64;
 using namespace Jit;
 
 Instance::Instance() {
-    context_config_ = {
+    jit_config_ = {
             .jit_thread_count = 2,
             .context_reg = 30, // lr
             .forward_reg = 16,
@@ -23,14 +23,26 @@ Instance::Instance() {
             .writable_bit = 1,
             .executable_bit = 2
     };
-    code_find_table_ = SharedPtr<FindTable<VAddr>>(new FindTable<VAddr>(48, 2));
+    Instance(jit_config_, mmu_config_);
+}
+
+Instance::Instance(const JitConfig &jit, const MmuConfig &mmu) : jit_config_(jit),
+                                                                 mmu_config_(mmu) {
+}
+
+void Instance::Initialize() {
+    code_find_table_ = SharedPtr<FindTable<VAddr>>(new FindTable<VAddr>(mmu_config_.addr_width, 2));
     global_stubs_ = SharedPtr<GlobalStubs>(new GlobalStubs(SharedFrom(this)));
     jit_manager_ = SharedPtr<JitManager>(new JitManager(SharedFrom(this)));
-    mmu_ = SharedPtr<A64MMU>(new A64MMU(mmu_config_.addr_width, mmu_config_.page_bits));
+    jit_manager_->Initialize();
+    if (mmu_config_.enable) {
+        mmu_ = SharedPtr<A64MMU>(new A64MMU(mmu_config_.addr_width, mmu_config_.page_bits));
+    }
+    isolate_cache_blocks_.push_back(AllocCacheBlock(BLOCK_SIZE_A64));
 }
 
 const JitConfig &Instance::GetJitConfig() const {
-    return context_config_;
+    return jit_config_;
 }
 
 const SharedPtr<Jit::FindTable<VAddr>> &Instance::GetCodeFindTable() const {
@@ -42,7 +54,11 @@ const SharedPtr<GlobalStubs> &Instance::GetGlobalStubs() const {
 }
 
 JitCacheEntry *Instance::FindAndJit(VAddr addr) {
-    return jit_manager_->EmplaceJit(addr);
+    auto entry = jit_manager_->EmplaceJit(addr);
+    if (entry) {
+        code_find_table_->FillCodeAddress(entry->addr_start, entry->Data().GetStub());
+    }
+    return entry;
 }
 
 const MmuConfig &Instance::GetMmuConfig() const {
@@ -55,4 +71,45 @@ const SharedPtr<SVM::A64::A64MMU> &Instance::GetMmu() const {
 
 const SharedPtr<JitManager> &Instance::GetJitManager() const {
     return jit_manager_;
+}
+
+void Instance::RegisterCodeSet(const std::shared_ptr<Jit::CodeSet> &code_set) {
+    std::unique_lock guard(code_set_lock_);
+    auto code_start = code_set->CodeSegment().addr;
+    auto code_end = code_set->CodeSegment().addr + code_set->CodeSegment().size;
+    code_sets_.push_back(code_set);
+    auto code_block = AllocCacheBlock((code_end - code_start) >> 2);
+    cache_blocks_set_[code_set.get()] = code_block;
+    const IntervalType interval{code_start, code_end};
+    cache_blocks_addresses_.insert({interval, code_block});
+
+    if (!mmu_config_.enable && jit_config_.protect_code) {
+        ProtectCodeSegment(code_start, code_end);
+    }
+}
+
+CodeBlock *Instance::AllocCacheBlock(u32 size) {
+    auto block = std::make_unique<CodeBlock>(size);
+    block->GenDispatcherStub(jit_config_.forward_reg, global_stubs_->GetForwardCodeCache());
+    auto res = block.get();
+    cache_blocks_.push_back(std::move(block));
+    return res;
+}
+
+CodeBlock *Instance::PeekCacheBlock(VAddr pc) {
+    std::shared_lock guard(code_set_lock_);
+    const auto &it = cache_blocks_addresses_.find(pc);
+    if (it == cache_blocks_addresses_.end()) {
+        for (auto block : isolate_cache_blocks_) {
+            if (!block->Full()) {
+                return block;
+            }
+        }
+        return nullptr;
+    }
+    return it->second;
+}
+
+void Instance::ProtectCodeSegment(VAddr start, VAddr end) {
+    //TODO signal handler
 }

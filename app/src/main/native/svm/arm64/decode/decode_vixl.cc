@@ -201,3 +201,7 @@ void VixlJitDecodeVisitor::VisitUnimplemented(const Instruction *instr) {
 void VixlJitDecodeVisitor::VisitReserved(const Instruction *instr) {
     context_->Assembler().Emit(instr->GetInstructionBits());
 }
+
+VixlJitDecodeVisitor::~VixlJitDecodeVisitor() {
+
+}

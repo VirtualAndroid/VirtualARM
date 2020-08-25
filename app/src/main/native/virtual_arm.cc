@@ -6,59 +6,45 @@
 #include <dlfcn.h>
 #include <base/log.h>
 #include "virtual_arm.h"
-#include "asm/arm64/instruction_decode.h"
-#include "asm/arm64/cpu_arm64.h"
-#include "frontend/ir/instruction_ir.h"
-#include "svm/arm64/svm_jit_arm64.h"
-#include "block/code_cache.h"
 
+#include "svm/arm64/svm_arm64.h"
+#include "svm/arm64/svm_thread.h"
 
-using namespace Instructions::A64;
-using namespace CPU::A64;
-using namespace Instructions::IR;
-using namespace Jit;
+#define __ masm_.
+static MacroAssembler masm_;
 
-struct Dt {
-    int a;
-};
+void *TestCase1() {
+    Label true_label;
+    Label loop;
+    __ Reset();
+    __ Bind(&loop);
+    __ Push(x0, x1, x2, x3);
+    __ Sub(x1, x2, x3);
+    __ Cbz(x1, &true_label);
+    // do some
+    __ Add(x1, x1, 8);
+    __ Add(x1, x1, 8);
+    __ Add(x1, x1, 8);
+    __ Add(x1, x1, 8);
+    __ Bind(&true_label);
+    __ Pop(x3, x2, x1, x0);
+    __ Bl(&loop);
 
-class Test : NonCopyable{
-public:
+    __ FinalizeCode();
+    return __ GetBuffer()->GetStartAddress<void*>();
+}
 
-    Test(Dt d, u64 a, int i) : i(i) {
-        LOGE("Test(dai)");
-    }
-
-    Test(int i) : i(i) {
-        LOGE("Test(i)");
-    }
-
-    Test() {
-        LOGE("Test()");
-    }
-
-    ~Test() {
-        LOGE("~Test()");
-    }
-
-public:
-    int i;
-};
-
-
-SharedPtr<JitCache<Test, 12>> cache{new JitCache<Test, 12>(0x100, 0x10)};
 
 extern "C"
 JNIEXPORT void JNICALL
 load_test(JNIEnv *env, jobject instance) {
-//    FastBranchDecoder decoder;
-////    InstrA64Ref instr = decoder.Decode(reinterpret_cast<InstrA64 *>((VAddr)rename + 24));
-//    assert(sizeof(Argument) == sizeof(Imm128));
-//    CPUContext context;
-//    context.cpu_registers[30].X = 0x111;
-//    assert(context.lr.X == 0x111);
-    auto res = cache->Emplace(0x10000, Dt(), u64(1), (int)123);
-    LOGE("Test: %d" ,res->Data().i);
+    auto svm = SharedPtr<Instance>(new Instance());
+    svm->Initialize();
+    auto context = SharedPtr<EmuThreadContext>(new EmuThreadContext(svm));
+    context->RegisterCurrent();
+    context->GetCpuContext()->pc = reinterpret_cast<u64>(TestCase1());
+    context->GetCpuContext()->sp = reinterpret_cast<u64>(malloc(256 * 1024));
+    context->Run(100);
 }
 
 static bool registerNativeMethods(JNIEnv *env, const char *className, JNINativeMethod *jniMethods, int methods) {

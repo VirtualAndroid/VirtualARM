@@ -40,6 +40,7 @@ GlobalStubs::GlobalStubs(SharedPtr<Instance> instance) : instance_{instance}, co
     abi_interrupt_ = code_memory_ + 512 * 3;
     forward_code_cache_ = code_memory_ + 512 * 4;
     // do builds
+    *reinterpret_cast<int *>(code_memory_) = 1;
     BuildABIInterruptStub();
     BuildFullInterruptStub();
     BuildReturnToHostStub();
@@ -113,7 +114,7 @@ void GlobalStubs::BuildForwardCodeCache() {
     __ Ldp(tmp1, tmp2, MemOperand(context_reg_, tmp1.RealCode() * 8));
     __ Ldr(forward_reg_, MemOperand(context_reg_, forward_reg_.RealCode() * 8));
     ABISaveGuestContext(masm_, tmp1);
-    __ Mov(forward_reg_, (VAddr)CodeCacheMissStub);
+    __ Mov(forward_reg_, (VAddr) CodeCacheMissStub);
     __ Mov(x0, context_reg_);
     __ Blr(forward_reg_);
     __ Mov(context_reg_, x0);
@@ -121,10 +122,11 @@ void GlobalStubs::BuildForwardCodeCache() {
     __ Ldr(forward_reg_, MemOperand(context_reg_, OFFSET_CTX_A64_CODE_CACHE));
     __ Br(forward_reg_);
 
+    __ FinalizeCode();
+
     auto stub_size = __ GetBuffer()->GetSizeInBytes();
     VAddr buffer_start = forward_code_cache_;
     VAddr tmp_code_start = __ GetBuffer()->GetStartAddress<VAddr>();
-    __ FinalizeCode();
     std::memcpy(reinterpret_cast<void *>(buffer_start),
                 reinterpret_cast<const void *>(tmp_code_start), stub_size);
     __builtin___clear_cache(reinterpret_cast<char *>(buffer_start),
@@ -340,11 +342,11 @@ void GlobalStubs::BuildFullInterruptStub() {
     __ Mov(forward_reg_, forward_code_cache_);
     __ Br(forward_reg_);
 
+    __ FinalizeCode();
 
     auto stub_size = __ GetBuffer()->GetSizeInBytes();
     VAddr buffer_start = full_interrupt_;
     VAddr tmp_code_start = __ GetBuffer()->GetStartAddress<VAddr>();
-    __ FinalizeCode();
     std::memcpy(reinterpret_cast<void *>(buffer_start),
                 reinterpret_cast<const void *>(tmp_code_start), stub_size);
     __builtin___clear_cache(reinterpret_cast<char *>(buffer_start),
@@ -384,11 +386,11 @@ void GlobalStubs::BuildABIInterruptStub() {
     __ Mov(forward_reg_, forward_code_cache_);
     __ Br(forward_reg_);
 
+    __ FinalizeCode();
 
     auto stub_size = __ GetBuffer()->GetSizeInBytes();
     VAddr buffer_start = abi_interrupt_;
     VAddr tmp_code_start = __ GetBuffer()->GetStartAddress<VAddr>();
-    __ FinalizeCode();
     std::memcpy(reinterpret_cast<void *>(buffer_start),
                 reinterpret_cast<const void *>(tmp_code_start), stub_size);
     __builtin___clear_cache(reinterpret_cast<char *>(buffer_start),
@@ -422,10 +424,11 @@ void GlobalStubs::BuildHostToGuestStub() {
     __ Mov(forward_reg_, forward_code_cache_);
     __ Br(forward_reg_);
 
+    __ FinalizeCode();
+
     auto stub_size = __ GetBuffer()->GetSizeInBytes();
     VAddr buffer_start = reinterpret_cast<VAddr>(host_to_guest_);
     VAddr tmp_code_start = __ GetBuffer()->GetStartAddress<VAddr>();
-    __ FinalizeCode();
     std::memcpy(reinterpret_cast<void *>(buffer_start),
                 reinterpret_cast<const void *>(tmp_code_start), stub_size);
     __builtin___clear_cache(reinterpret_cast<char *>(buffer_start),
@@ -451,10 +454,11 @@ void GlobalStubs::BuildReturnToHostStub() {
     // ret lr
     __ Ret();
 
+    __ FinalizeCode();
+
     auto stub_size = __ GetBuffer()->GetSizeInBytes();
     VAddr buffer_start = return_to_host_;
     VAddr tmp_code_start = __ GetBuffer()->GetStartAddress<VAddr>();
-    __ FinalizeCode();
     std::memcpy(reinterpret_cast<void *>(buffer_start),
                 reinterpret_cast<const void *>(tmp_code_start), stub_size);
     __builtin___clear_cache(reinterpret_cast<char *>(buffer_start),

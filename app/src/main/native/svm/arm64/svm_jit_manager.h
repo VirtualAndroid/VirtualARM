@@ -15,9 +15,9 @@ namespace SVM::A64 {
     class JitThread;
 }
 
-using namespace SVM::A64;
-
 namespace Jit::A64 {
+
+    using namespace SVM::A64;
 
     constexpr static size_t page_bits = 12;
 
@@ -50,6 +50,8 @@ namespace Jit::A64 {
     class JitManager : public BaseObject {
     public:
         JitManager(const SharedPtr<Instance> &instance);
+
+        void Initialize();
 
         const SharedPtr<Instance> &GetInstance() const;
 

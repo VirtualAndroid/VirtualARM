@@ -345,19 +345,28 @@ protected:
 };
 
 class SpinMutex {
-    std::atomic<bool> flag = ATOMIC_VAR_INIT(false);
+    std::atomic<int> flag = ATOMIC_VAR_INIT(-1);
 public:
     SpinMutex() = default;
     void Lock() {
-        bool expected = false;
-        while(!flag.compare_exchange_strong(expected, true))
-            expected = false;
+        int expected = -1;
+        int tid = gettid();
+        while(!flag.compare_exchange_strong(expected, tid)) {
+            expected = -1;
+            sched_yield();
+        }
     }
+
     void Unlock() {
-        flag.store(false);
+        flag.store(-1);
     }
+
     bool TryLock() {
-        return flag;
+        return flag == -1;
+    }
+
+    bool LockedBySelf() {
+        return flag == gettid();
     }
 };
 

@@ -103,7 +103,6 @@ namespace CPU::A64 {
         VAddr target;
     };
 
-    #pragma pack(8)
     struct InterruptHelp {
         enum Reason : u32 {
             Svc,

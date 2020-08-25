@@ -30,7 +30,9 @@ namespace Decode::A64 {
     class VixlJitDecodeVisitor : public DecoderVisitor {
     public:
         VixlJitDecodeVisitor(ContextA64 &context);
-        virtual ~VixlJitDecodeVisitor() = default;
+
+        ~VixlJitDecodeVisitor() override;
+
         // Declare all Visitor functions.
 #define DECLARE(A) \
   virtual void Visit##A(const Instruction* instr) VIXL_OVERRIDE;

@@ -7,15 +7,19 @@
 #include "svm_global_stubs.h"
 #include "svm_mmu.h"
 #include "svm_jit_manager.h"
+#include "block/host_code_block.h"
+#include "block/code_set.h"
+#include <boost/icl/interval_map.hpp>
+#include <list>
 
 namespace Jit {
     template<typename T>
     class FindTable;
 }
 
-using namespace Jit::A64;
-
 namespace SVM::A64 {
+
+    using namespace Jit::A64;
 
     struct JitConfig {
         u8 context_reg;
@@ -38,6 +42,10 @@ namespace SVM::A64 {
 
         explicit Instance();
 
+        Instance(const JitConfig &jit, const MmuConfig &mmu);
+
+        void Initialize();
+
         const JitConfig &GetJitConfig() const;
 
         const MmuConfig &GetMmuConfig() const;
@@ -50,15 +58,33 @@ namespace SVM::A64 {
 
         const SharedPtr<JitManager> &GetJitManager() const;
 
+        CodeBlock *AllocCacheBlock(u32 size);
+
+        void RegisterCodeSet(const std::shared_ptr<Jit::CodeSet> &code_set);
+
         JitCacheEntry *FindAndJit(VAddr addr);
 
+        CodeBlock *PeekCacheBlock(VAddr pc);
+
     private:
-        JitConfig context_config_;
+
+        void ProtectCodeSegment(VAddr start, VAddr end);
+
+        JitConfig jit_config_;
         MmuConfig mmu_config_;
         SharedPtr<Jit::FindTable<VAddr>> code_find_table_;
         SharedPtr<GlobalStubs> global_stubs_;
         SharedPtr<JitManager> jit_manager_;
         SharedPtr<A64MMU> mmu_;
+
+        std::shared_mutex code_set_lock_;
+        std::list<std::shared_ptr<Jit::CodeSet>> code_sets_;
+        std::list<std::unique_ptr<CodeBlock>> cache_blocks_;
+        std::list<CodeBlock*> isolate_cache_blocks_;
+        std::unordered_map<Jit::CodeSet*, CodeBlock*> cache_blocks_set_;
+        using IntervalCache = boost::icl::interval_map<VAddr, CodeBlock*>;
+        using IntervalType = typename IntervalCache::interval_type;
+        IntervalCache cache_blocks_addresses_;
     };
 
     class Core : public BaseObject {

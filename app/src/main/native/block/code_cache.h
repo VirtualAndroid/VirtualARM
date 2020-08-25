@@ -33,6 +33,10 @@ namespace Jit {
             constexpr T &Data() {
                 return *reinterpret_cast<T*>(data.data());
             }
+
+            constexpr T *DataPtr() {
+                return reinterpret_cast<T*>(data.data());
+            }
         };
 
         explicit JitCache(size_t capacity, size_t step) : step_{step} {

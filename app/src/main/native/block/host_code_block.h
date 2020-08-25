@@ -6,6 +6,7 @@
 
 #include <base/marcos.h>
 #include <map>
+#include <vector>
 
 namespace Jit {
 
@@ -59,13 +60,15 @@ namespace Jit {
 
         VAddr Base();
 
+        bool Full();
+
     protected:
         VAddr start_;
         VAddr size_;
         std::mutex lock_;
         u16 current_buffer_id_{0};
         u32 current_offset_{0};
-        std::array<Buffer, MAX_BUFFER> buffers_;
+        std::vector<Buffer> buffers_;
     };
 
     namespace A64 {
@@ -81,17 +84,15 @@ namespace Jit {
             u32 go_forward_;
         };
 
-        struct DispatcherTable {
-            Dispatcher *dispatchers_;
-        };
-
-#define BLOCK_SIZE_A64 16 * 1024 * 1024
+#define BLOCK_SIZE_A64 UINT32_C(16 * 1024 * 1024)
+#define BLOCK_SIZE_A64_MAX UINT32_C(128 * 1024 * 1024)
 
         class CodeBlock : public BaseBlock {
         public:
-            CodeBlock(u32 forward_reg_rec_size, u32 block_size = BLOCK_SIZE_A64);
-
+            CodeBlock(u32 block_size = BLOCK_SIZE_A64);
             virtual ~CodeBlock();
+
+            void GenDispatcherStub(u8 reg_forward, VAddr dispatcher_trampoline);
 
             void FlushCodeBuffer(Buffer *buffer, u32 size) override;
 
@@ -106,10 +107,12 @@ namespace Jit {
             VAddr ModuleMapAddressAddress();
 
         protected:
-            u32 dispatcher_count_;
+
+            u32 buffer_count_;
             u32 forward_reg_rec_size_;
             VAddr *module_base_;
-            DispatcherTable *dispatcher_table_;
+            u32 dispatcher_stub_offset_{0};
+            Dispatcher *dispatchers_;
         };
 
         using CodeBlockRef = SharedPtr<CodeBlock>;

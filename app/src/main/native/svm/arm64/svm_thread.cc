@@ -18,8 +18,8 @@ ThreadContext::ThreadContext(const SharedPtr<Instance> &instance) : instance_(in
     } else {
         jit_context_ = SharedPtr<JitContext>(new QuickContext(instance));
     }
-    jit_visitor_ = std::make_unique<VixlJitDecodeVisitor>(jit_context_);
-    jit_decode_ = std::make_unique<vixl::aarch64::Decoder>();
+    jit_visitor_ = std::make_shared<VixlJitDecodeVisitor>(jit_context_);
+    jit_decode_ = std::make_shared<vixl::aarch64::Decoder>();
     jit_decode_->AppendVisitor(jit_visitor_.get());
 }
 
@@ -39,21 +39,30 @@ const ContextA64 &ThreadContext::GetJitContext() const {
 bool ThreadContext::JitInstr(VAddr addr) {
     jit_context_->SetPC(addr);
     jit_decode_->Decode(reinterpret_cast<Instruction*>(addr));
-    return jit_context_->Termed();
+    return !jit_context_->Termed();
 }
 
 EmuThreadContext::EmuThreadContext(const SharedPtr<Instance> &instance) : ThreadContext(instance) {
     // 512KB
     interrupt_stack_.resize(512 * 1024);
-    cpu_context.interrupt_sp = reinterpret_cast<VAddr>(interrupt_stack_.data());
+    cpu_context_.interrupt_sp = reinterpret_cast<VAddr>(interrupt_stack_.data());
 }
 
-void EmuThreadContext::Run() {
-    instance_->GetGlobalStubs()->RunCode(&cpu_context);
+void EmuThreadContext::Run(size_t ticks) {
+    cpu_context_.ticks_max += ticks;
+    auto jit_cache = instance_->FindAndJit(cpu_context_.pc);
+    if (jit_cache && jit_cache->Data().GetStub()) {
+        cpu_context_.forward = jit_cache->Data().GetStub();
+    }
+    instance_->GetGlobalStubs()->RunCode(&cpu_context_);
 }
 
 ThreadType EmuThreadContext::Type() {
     return EnumThreadType;
+}
+
+CPUContext *EmuThreadContext::GetCpuContext() {
+    return &cpu_context_;
 }
 
 JitThreadContext::JitThreadContext(const SharedPtr<Instance> &instance) : ThreadContext(instance) {}
@@ -66,7 +75,7 @@ JitThread::JitThread(const SharedPtr<JitManager> &manager) : jit_manager_(manage
     context_ = SharedPtr<JitThreadContext>(new JitThreadContext(manager->GetInstance()));
     thread_.reset(new std::thread([this]() -> void {
         context_->RegisterCurrent();
-        while (destroyed) {
+        while (!destroyed) {
             jit_manager_->JitFromQueue();
         }
     }));
