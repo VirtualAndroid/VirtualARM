@@ -3,6 +3,8 @@
 //
 
 #include "svm_thread.h"
+
+#include <memory>
 #include "decode/decode_vixl.h"
 #include "svm_jit_manager.h"
 
@@ -56,14 +58,14 @@ EmuThreadContext::EmuThreadContext(const SharedPtr<Instance> &instance) : Thread
     // 512KB
     interrupt_stack_.resize(512 * 1024);
     cpu_context_.context_ptr = reinterpret_cast<VAddr>(this);
+    cpu_context_.host_stubs = reinterpret_cast<VAddr>(instance->GetGlobalStubs().get());
     cpu_context_.dispatcher_table = instance->GetCodeFindTable()->TableEntryPtr();
+    cpu_context_.interrupt_sp = reinterpret_cast<VAddr>(interrupt_stack_.data());
     auto mmu_ = instance->GetMmu();
     if (mmu_) {
         cpu_context_.page_table = mmu_->TopPageTable();
         cpu_context_.tlb = mmu_->Tbl()->TLBTablePtr();
     }
-    cpu_context_.dispatcher_table = instance->GetCodeFindTable()->TableEntryPtr();
-    cpu_context_.interrupt_sp = reinterpret_cast<VAddr>(interrupt_stack_.data());
 }
 
 void EmuThreadContext::Run(size_t ticks) {
@@ -73,7 +75,7 @@ void EmuThreadContext::Run(size_t ticks) {
 }
 
 ThreadType EmuThreadContext::Type() {
-    return EnumThreadType;
+    return EmuThreadType;
 }
 
 CPUContext *EmuThreadContext::GetCpuContext() {
@@ -95,12 +97,12 @@ ThreadType JitThreadContext::Type() {
 
 JitThread::JitThread(const SharedPtr<JitManager> &manager) : jit_manager_(manager) {
     context_ = SharedPtr<JitThreadContext>(new JitThreadContext(manager->GetInstance()));
-    thread_.reset(new std::thread([this]() -> void {
+    thread_ = std::make_unique<std::thread>([this]() -> void {
         context_->RegisterCurrent();
         while (!destroyed) {
             jit_manager_->JitFromQueue();
         }
-    }));
+    });
 }
 
 JitThread::~JitThread() {

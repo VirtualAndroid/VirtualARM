@@ -24,7 +24,7 @@ namespace SVM::A64 {
 
     enum ThreadType {
         JitThreadType,
-        EnumThreadType
+        EmuThreadType
     };
 
     class ThreadContext : public BaseObject, NonCopyable {

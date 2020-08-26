@@ -117,8 +117,7 @@ Label *LabelAllocator::AllocOutstanding(VAddr target) {
 
 JitContext::JitContext(Instance &instance) : instance_{instance}, reg_ctx_{
         XRegister::GetXRegFromCode(instance.GetJitConfig().context_reg)}, reg_forward_{
-        XRegister::GetXRegFromCode(instance.GetJitConfig().forward_reg)},
-        global_stubs_{*instance_.GetGlobalStubs()} {
+        XRegister::GetXRegFromCode(instance.GetJitConfig().forward_reg)} {
     mmu_ = instance.GetMmu().get();
     if (mmu_) {
         page_bits_ = mmu_->GetPageBits();
@@ -321,7 +320,7 @@ void JitContext::Forward(VAddr addr) {
     __ Mov(reg_forward_, addr);
     __ Str(reg_forward_,
            MemOperand(MemOperand(register_alloc_.ContextPtr(), OFFSET_CTX_A64_PC)));
-    __ Mov(reg_forward_, global_stubs_.GetForwardCodeCache());
+    LoadGlobalStub(reg_forward_, GlobalStubs::ForwardCodeCacheOffset());
     __ Br(reg_forward_);
 }
 
@@ -332,7 +331,7 @@ void JitContext::Forward(const Register &target) {
     }
     __ Str(target, MemOperand(MemOperand(register_alloc_.ContextPtr(), OFFSET_CTX_A64_PC)));
     CheckTicks();
-    __ Mov(reg_forward_, global_stubs_.GetForwardCodeCache());
+    LoadGlobalStub(reg_forward_, GlobalStubs::ForwardCodeCacheOffset());
     __ Br(reg_forward_);
 }
 
@@ -366,7 +365,7 @@ void JitContext::CheckTicks() {
     __ Msr(NZCV, tmp3.W());
     // Return Host
     register_alloc_.ReleaseTempX(tmp3);
-    __ Mov(reg_forward_, global_stubs_.GetReturnToHost());
+    LoadGlobalStub(reg_forward_, GlobalStubs::ReturnToHostOffset());
     __ Br(reg_forward_);
     __ Bind(continue_label);
     __ Msr(NZCV, tmp3.W());
@@ -374,8 +373,12 @@ void JitContext::CheckTicks() {
 }
 
 void JitContext::Terminal(const Register &tmp) {
-    MarkBlockEnd(tmp);
-    AddTicks(current_block_ticks_, tmp);
+    const auto &tmp_reg = tmp.IsValid() ? tmp : register_alloc_.AcquireTempX();
+    MarkBlockEnd(tmp_reg);
+    AddTicks(current_block_ticks_, tmp_reg);
+    if (!tmp.IsValid()) {
+        register_alloc_.ReleaseTempX(tmp_reg);
+    }
     terminal = true;
 }
 
@@ -439,7 +442,7 @@ void JitContext::Interrupt(const InterruptHelp &interrupt) {
     __ Str(tmp.W(), MemOperand(reg_ctx, OFFSET_OF(CPUContext, interrupt.reason)));
     __ Mov(tmp, interrupt.data);
     __ Str(tmp, MemOperand(reg_ctx, OFFSET_OF(CPUContext, interrupt.data)));
-    __ Mov(reg_forward_, instance_.GetGlobalStubs()->GetFullInterrupt());
+    LoadGlobalStub(reg_forward_, GlobalStubs::FullInterruptOffset());
     __ Br(reg_forward_);
 }
 
@@ -510,7 +513,7 @@ void JitContext::LookupPageTable(const Register &rt, const VirtualAddress &va, b
         __ Mov(reg_forward_, va.Address());
         __ Str(reg_forward_, MemOperand(register_alloc_.ContextPtr(), OFFSET_CTX_A64_QUERY_PAGE));
     }
-    __ Mov(reg_forward_, global_stubs_.GetFullInterrupt());
+    LoadGlobalStub(reg_forward_, GlobalStubs::FullInterruptOffset());
     __ Br(reg_forward_);
     Pop(reg_forward_);
     __ Bind(label_end);
@@ -566,6 +569,39 @@ const Register &JitContext::LoadContextPtr() {
 void JitContext::ClearContextPtr(const Register &context) {
 //    __ Ldr(context, MemOperand(context, 8 * context.RealCode()));
 //    register_alloc_.MarkInUsed(context, false);
+}
+
+void JitContext::LoadGlobalStub(const Register &target, u32 stub_offset) {
+    __ Ldr(target, MemOperand(register_alloc_.ContextPtr(), OFFSET_OF(CPUContext, host_stubs)));
+    __ Ldr(target, MemOperand(target, stub_offset));
+}
+
+void JitContext::ABICall(const ABICallHelp &call_help) {
+    auto reg_ctx = register_alloc_.ContextPtr();
+    auto tmp = reg_forward_;
+    Push(reg_forward_);
+    Terminal(reg_forward_);
+    __ Mov(tmp, call_help.reason);
+    __ Str(tmp.W(), MemOperand(reg_ctx, OFFSET_OF(CPUContext, abi_call.reason)));
+    __ Mov(tmp, call_help.data);
+    __ Str(tmp, MemOperand(reg_ctx, OFFSET_OF(CPUContext, abi_call.data)));
+    LoadGlobalStub(reg_forward_, GlobalStubs::FullInterruptOffset());
+    __ Br(reg_forward_);
+}
+
+void JitContext::ABICall(const ABICallHelp::Reason call, const Register &xt) {
+    auto reg_ctx = register_alloc_.ContextPtr();
+    auto tmp = reg_forward_;
+    if (xt != tmp) {
+        Push(tmp);
+        __ Mov(tmp, xt);
+    }
+    __ Str(tmp, MemOperand(reg_ctx, OFFSET_OF(CPUContext, abi_call.data)));
+    __ Mov(tmp, call);
+    __ Str(tmp.W(), MemOperand(reg_ctx, OFFSET_OF(CPUContext, abi_call.reason)));
+    Terminal(tmp);
+    LoadGlobalStub(tmp, GlobalStubs::FullInterruptOffset());
+    __ Br(tmp);
 }
 
 RegisterGuard::RegisterGuard(const ContextA64 &context, const Register &target) : context_(context),

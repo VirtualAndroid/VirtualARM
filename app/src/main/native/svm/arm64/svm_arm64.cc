@@ -109,7 +109,3 @@ CodeBlock *Instance::PeekCacheBlock(VAddr pc) {
 void Instance::ProtectCodeSegment(VAddr start, VAddr end) {
     //TODO signal handler
 }
-
-Instance::~Instance() {
-    abort();
-}

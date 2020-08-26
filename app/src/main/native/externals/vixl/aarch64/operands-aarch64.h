@@ -183,7 +183,11 @@ class CPURegister {
     return Aliases(other) && (size_ == other.size_);
   }
 
-  bool IsZero() const {
+    bool operator==(const CPURegister &rhs) const;
+
+    bool operator!=(const CPURegister &rhs) const;
+
+    bool IsZero() const {
     VIXL_ASSERT(IsValid());
     return IsRegister() && (code_ == kZeroRegCode);
   }
@@ -257,6 +261,8 @@ class Register : public CPURegister {
     VIXL_ASSERT(IsValidRegister());
   }
   Register(unsigned code, unsigned size) : CPURegister(code, size, kRegister) {}
+
+
 
   bool IsValid() const {
     VIXL_ASSERT(IsRegister() || IsNone());

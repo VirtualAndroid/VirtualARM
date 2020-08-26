@@ -21,6 +21,7 @@ using namespace SVM::A64;
 
 namespace SVM::A64 {
     class Instance;
+
     class GlobalStubs;
 }
 
@@ -29,6 +30,7 @@ namespace Jit::A64 {
     using namespace vixl::aarch64;
 
     class JitContext;
+
     class RegisterAllocator;
 
     class RegisterAllocator {
@@ -97,6 +99,7 @@ namespace Jit::A64 {
     class VirtualAddress final {
     public:
         constexpr VirtualAddress(const Register &rt) : rt_{rt}, vaddr_(0), const_addr_{false} {};
+
         constexpr VirtualAddress(const VAddr &vaddr) : rt_{x0}, vaddr_(vaddr), const_addr_{true} {};
 
         const bool ConstAddress() const {
@@ -110,6 +113,7 @@ namespace Jit::A64 {
         const Register &VARegister() const {
             return rt_;
         }
+
     private:
         const Register &rt_;
         const VAddr vaddr_;
@@ -150,7 +154,7 @@ namespace Jit::A64 {
 
         void MarkReturn();
 
-        void Terminal(const Register& tmp = NoReg);
+        void Terminal(const Register &tmp = NoReg);
 
         void CheckTicks();
 
@@ -159,6 +163,10 @@ namespace Jit::A64 {
         void Forward(const Register &target);
 
         void Interrupt(const InterruptHelp &interrupt);
+
+        void ABICall(const ABICallHelp &call);
+
+        void ABICall(const ABICallHelp::Reason call, const Register &xt);
 
         void LookupPageTable(const Register &rt, const VirtualAddress &va, bool write = false);
 
@@ -184,17 +192,19 @@ namespace Jit::A64 {
 
     private:
         void MarkBlockEnd(Register tmp = NoReg);
+
         void AddTicks(u64 ticks, Register tmp = NoReg);
+
+        void LoadGlobalStub(const Register &target, u32 stub_offset);
 
         Instance &instance_;
         const Register &reg_ctx_;
         const Register &reg_forward_;
-        GlobalStubs &global_stubs_;
         MacroAssembler masm_{PositionIndependentCode};
         RegisterAllocator register_alloc_;
         LabelAllocator label_allocator_{masm_};
         VAddr pc_{};
-        u32 current_block_ticks_{0};
+        u32 current_block_ticks_{1};
         bool terminal{false};
         JitCacheEntry *current_cache_entry_{};
 
@@ -207,7 +217,7 @@ namespace Jit::A64 {
         A64MMU *mmu_{};
     };
 
-    using ContextA64 = JitContext*;
+    using ContextA64 = JitContext *;
 
     class RegisterGuard {
     public:

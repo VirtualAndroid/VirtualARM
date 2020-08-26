@@ -29,6 +29,11 @@ namespace SVM::A64 {
         VAddr GetReturnToHost() const;
         VAddr GetAbiInterrupt() const;
 
+        static const u32 FullInterruptOffset();
+        static const u32 ForwardCodeCacheOffset();
+        static const u32 ReturnToHostOffset();
+        static const u32 ABIInterruptOffset();
+
         void RunCode(CPU::A64::CPUContext *context);
 
     private:
@@ -51,15 +56,14 @@ namespace SVM::A64 {
         static CPU::A64::CPUContext *JitCacheMissStub(CPU::A64::CPUContext *context);
 
         CPU::A64::CPUContext *(*host_to_guest_)(CPU::A64::CPUContext *);
-        VAddr return_to_host_;
-        VAddr full_interrupt_;
-        VAddr abi_interrupt_;
-        VAddr forward_code_cache_;
         SharedPtr<Instance> instance_;
         const Register &context_reg_;
         const Register &forward_reg_;
         VAddr code_memory_;
-        bool load_context_;
+        VAddr return_to_host_;
+        VAddr full_interrupt_;
+        VAddr abi_interrupt_;
+        VAddr forward_code_cache_;
     };
 
 }

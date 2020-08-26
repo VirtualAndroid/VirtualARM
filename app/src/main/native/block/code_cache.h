@@ -13,9 +13,9 @@ namespace Jit {
     template<typename T, size_t page_bits>
     class JitCache : public BaseObject {
     public:
-        static_assert(page_bits <= 16);
+        static_assert(page_bits <= 32);
         static constexpr size_t page_size = u64(1) << page_bits;
-        static constexpr size_t page_mask = page_size - 1;
+        static constexpr size_t addr_mask = (u64(1) << 32) - 1;
 
         struct Entry {
             size_t addr_start{0};
@@ -44,9 +44,9 @@ namespace Jit {
         }
 
         Entry *GetUnsafe(size_t addr) {
-            const auto &it = code_page_cache_.find(addr << page_bits);
+            const auto &it = code_page_cache_.find(addr >> page_bits);
             if (it != code_page_cache_.end()) {
-                auto &entry = it->second[addr & page_mask];
+                auto &entry = it->second[addr & addr_mask];
                 if (entry && entry->addr_start != addr) {
                     entry = nullptr;
                 }
@@ -98,14 +98,14 @@ namespace Jit {
 
         void Flush(Entry *entry) {
             std::unique_lock guard(lock_);
-            auto &it = holding_cache_.find(entry->addr_start);
+            const auto &it = holding_cache_.find(entry->addr_start);
             if (it == holding_cache_.end()) {
                 return;
             }
             holding_cache_.erase(it);
             const size_t page_end = (entry->addr_end + page_size - 1) >> page_bits;
             for (size_t page = entry->addr_start >> page_bits; page < page_end; ++page) {
-                code_page_cache_[page][entry->addr_start & page_mask] = entry;
+                code_page_cache_[page][entry->addr_start & addr_mask] = entry;
             }
         }
 
@@ -118,7 +118,7 @@ namespace Jit {
             new (new_entry->data.data()) T(std::forward<Args>(args)...);
             const size_t page_end = (addr + size + page_size - 1) >> page_bits;
             for (size_t page = addr >> page_bits; page < page_end; ++page) {
-                code_page_cache_[page][addr & page_mask] = new_entry;
+                code_page_cache_[page][addr & addr_mask] = new_entry;
             }
             return new_entry;
         }
@@ -206,7 +206,7 @@ namespace Jit {
         }
 
         std::unordered_map<size_t, Entry*> holding_cache_;
-        std::unordered_map<size_t, std::unordered_map<u16, Entry*>> code_page_cache_;
+        std::unordered_map<size_t, std::unordered_map<u32, Entry*>> code_page_cache_;
         std::vector<Entry> block_data_;
         size_t last_data_pos_{0};
         size_t step_{0};

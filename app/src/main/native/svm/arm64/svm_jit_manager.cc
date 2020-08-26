@@ -53,6 +53,7 @@ void JitManager::JitFromQueue() {
 }
 
 void JitManager::JitUnsafe(JitCacheEntry *entry) {
+    LOGE("JitUnsafe: %llu", entry->addr_start);
     const auto &thread_context = ThreadContext::Current();
     auto pc = entry->addr_start;
     // peek code block
@@ -71,11 +72,12 @@ void JitManager::JitUnsafe(JitCacheEntry *entry) {
     }
 
     thread_context->PopJitContext();
-    entry->addr_end = pc;
+    entry->addr_end = pc + 4;
     auto cache_size = jit_context.BlockCacheSize();
     code_block->FlushCodeBuffer(buffer, cache_size);
     jit_context.EndBlock();
     entry->Data().ready = true;
+    jit_cache_->Flush(entry);
 }
 
 JitCacheEntry *JitManager::EmplaceJit(VAddr addr) {
@@ -90,14 +92,13 @@ JitCacheEntry *JitManager::EmplaceJit(VAddr addr) {
         }
         // do jit now
         JitNestGuard nest_guard;
-        bool is_emu_thread = ThreadContext::Current()->Type() == EnumThreadType;
+        bool is_emu_thread = ThreadContext::Current()->Type() == EmuThreadType;
         if (!is_emu_thread || JitNestGuard::CurrentNest() > 8) {
             CommitJit(entry);
         } else {
             JitUnsafe(entry);
         }
     }
-    assert(entry);
     return entry;
 }
 

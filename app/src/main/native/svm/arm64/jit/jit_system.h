@@ -72,6 +72,14 @@ namespace Jit::A64 {
         }
     }
 
+    void ClearInstructionCache(ContextA64 context, u8 target_reg) {
+        auto &masm_ = context->Assembler();
+
+        RegisterGuard guard(context, context->GetXRegister(target_reg));
+
+        context->ABICall(ABICallHelp::IC_IVAU, guard.Target());
+    }
+
 #undef __
 }
 

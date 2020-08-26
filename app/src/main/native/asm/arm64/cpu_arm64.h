@@ -121,6 +121,19 @@ namespace CPU::A64 {
         };
     };
 
+    struct ABICallHelp {
+        enum Reason : u32 {
+            IC_IVAU,
+            GetTicks
+        };
+        Reason reason;
+        union {
+            u64 data;
+            u64 ticks;
+            u64 ivau_xt;
+        };
+    };
+
     struct CPUContext {
         Reg cpu_registers[29];
         Reg fp; // x29
@@ -142,8 +155,13 @@ namespace CPU::A64 {
         // memory
         VAddr tlb;
         VAddr page_table;
-        // interrupt
-        InterruptHelp interrupt;
+        // host stubs
+        VAddr host_stubs;
+        union {
+            // interrupt
+            InterruptHelp interrupt;
+            ABICallHelp abi_call;
+        };
         VAddr interrupt_sp;
         VAddr host_sp;
         // flags

@@ -44,7 +44,6 @@ CPU::A64::CPUContext *GlobalStubs::ABIStub(CPU::A64::CPUContext *context) {
 GlobalStubs::GlobalStubs(SharedPtr<Instance> instance) : instance_{instance}, context_reg_{
         XRegister::GetXRegFromCode(instance->GetJitConfig().context_reg)}, forward_reg_{
         XRegister::GetXRegFromCode(instance->GetJitConfig().forward_reg)} {
-    load_context_ = !instance->GetMmuConfig().enable;
     // allocate code memory
     code_memory_ = reinterpret_cast<VAddr>(Platform::MapExecutableMemory(stub_memory_size));
     host_to_guest_ = reinterpret_cast<CPUContext *(*)(CPUContext *)>(code_memory_);
@@ -162,7 +161,7 @@ void GlobalStubs::FullSaveGuestContext(MacroAssembler &masm_, Register &tmp) {
         }
     }
     // save lr
-    if (context_reg_.RealCode() != lr.RealCode()) {
+    if (context_reg_ == lr) {
         __ Str(x30, MemOperand(context_reg_, OFFSET_CTX_A64_LR));
     }
     // sysregs
@@ -484,4 +483,20 @@ void GlobalStubs::BuildReturnToHostStub() {
                 reinterpret_cast<const void *>(tmp_code_start), stub_size);
     __builtin___clear_cache(reinterpret_cast<char *>(buffer_start),
                             reinterpret_cast<char *>(buffer_start + stub_size));
+}
+
+const u32 GlobalStubs::FullInterruptOffset() {
+    return OFFSET_OF(GlobalStubs, full_interrupt_);
+}
+
+const u32 GlobalStubs::ForwardCodeCacheOffset() {
+    return OFFSET_OF(GlobalStubs, forward_code_cache_);
+}
+
+const u32 GlobalStubs::ReturnToHostOffset() {
+    return OFFSET_OF(GlobalStubs, return_to_host_);
+}
+
+const u32 GlobalStubs::ABIInterruptOffset() {
+    return OFFSET_OF(GlobalStubs, abi_interrupt_);
 }

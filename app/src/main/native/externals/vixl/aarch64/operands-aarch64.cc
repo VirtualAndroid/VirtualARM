@@ -287,6 +287,16 @@ const VRegister& CPURegister::V() const {
   return VRegister::GetVRegFromCode(code_);
 }
 
+bool CPURegister::operator==(const CPURegister &rhs) const {
+  return code_ == rhs.code_ &&
+                   size_ == rhs.size_ &&
+                   type_ == rhs.type_;
+}
+
+bool CPURegister::operator!=(const CPURegister &rhs) const {
+  return !(rhs == *this);
+}
+
 
 // Operand.
 Operand::Operand(int64_t immediate)
