@@ -79,8 +79,9 @@ namespace SVM::A64 {
         virtual u64 GetClockTicks() { return 0; };
 
     protected:
-        CPUContext cpu_context_;
         std::vector<u8> interrupt_stack_;
+        alignas(8)
+        CPUContext cpu_context_;
     };
 
     class JitThreadContext : public ThreadContext {

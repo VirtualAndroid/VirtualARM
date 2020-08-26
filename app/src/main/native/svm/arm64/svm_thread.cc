@@ -60,7 +60,7 @@ EmuThreadContext::EmuThreadContext(const SharedPtr<Instance> &instance) : Thread
     cpu_context_.context_ptr = reinterpret_cast<VAddr>(this);
     cpu_context_.host_stubs = reinterpret_cast<VAddr>(instance->GetGlobalStubs().get());
     cpu_context_.dispatcher_table = instance->GetCodeFindTable()->TableEntryPtr();
-    cpu_context_.interrupt_sp = reinterpret_cast<VAddr>(interrupt_stack_.data());
+    cpu_context_.interrupt_sp = reinterpret_cast<VAddr>(interrupt_stack_.data()) + interrupt_stack_.size();
     auto mmu_ = instance->GetMmu();
     if (mmu_) {
         cpu_context_.page_table = mmu_->TopPageTable();
@@ -71,6 +71,7 @@ EmuThreadContext::EmuThreadContext(const SharedPtr<Instance> &instance) : Thread
 void EmuThreadContext::Run(size_t ticks) {
     cpu_context_.ticks_max += ticks;
     LookupJitCache();
+    __sync_synchronize();
     instance_->GetGlobalStubs()->RunCode(&cpu_context_);
 }
 

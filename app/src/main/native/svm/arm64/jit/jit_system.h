@@ -33,7 +33,7 @@ namespace Jit::A64 {
 
         auto &masm_ = context->Assembler();
 
-        RegisterGuard guard(context, context->GetXRegister(rt));
+        RegisterGuard guard(context, {context->GetXRegister(rt)});
         if constexpr (write) {
             guard.Dirty();
         }
@@ -75,7 +75,7 @@ namespace Jit::A64 {
     void ClearInstructionCache(ContextA64 context, u8 target_reg) {
         auto &masm_ = context->Assembler();
 
-        RegisterGuard guard(context, context->GetXRegister(target_reg));
+        RegisterGuard guard(context, {context->GetXRegister(target_reg)});
 
         context->ABICall(ABICallHelp::IC_IVAU, guard.Target());
     }

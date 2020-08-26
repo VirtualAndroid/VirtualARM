@@ -33,7 +33,8 @@ void BaseBlock::FlushCodeBuffer(Buffer *buffer, u32 size) {
     assert(size <= (UINT16_MAX << 2));
     buffer->size_ = static_cast<u16>(size >> 2);
     LockGuard lck(lock_);
-    buffer->offset_ = current_offset_ += buffer->size_;
+    buffer->offset_ = current_offset_;
+    current_offset_ += AlignUp(buffer->size_, 2);
 }
 
 VAddr BaseBlock::GetBufferStart(Buffer *buffer) {
@@ -55,8 +56,7 @@ Buffer *BaseBlock::GetBuffer(u16 id) {
 }
 
 void BaseBlock::Align(u32 size) {
-    LockGuard lck(lock_);
-    current_offset_ = RoundUp(current_offset_, size);
+    current_offset_ = AlignUp(current_offset_, size);
 }
 
 u16 BaseBlock::GetCurrentId() const {
@@ -79,8 +79,8 @@ bool BaseBlock::Full() {
 
 A64::CodeBlock::CodeBlock(u32 block_size) : BaseBlock(
         reinterpret_cast<VAddr>(Platform::MapExecutableMemory(
-                std::min(BLOCK_SIZE_A64_MAX, block_size))),
-        std::min(BLOCK_SIZE_A64_MAX, block_size)) {
+                std::min(BLOCK_SIZE_A64_MAX, AlignUp(block_size, PAGE_SIZE)))),
+        std::min(BLOCK_SIZE_A64_MAX, AlignUp(block_size, PAGE_SIZE))) {
     // init block base
     assert(Base() % PAGE_SIZE == 0);
     module_base_ = reinterpret_cast<VAddr *>(Base());
@@ -88,7 +88,7 @@ A64::CodeBlock::CodeBlock(u32 block_size) : BaseBlock(
     buffer_count_ = std::min<u32>(block_size >> 8, UINT16_MAX);
     buffers_.resize(buffer_count_);
     dispatchers_ = reinterpret_cast<Dispatcher *>(start_ + sizeof(VAddr));
-    current_offset_ = (sizeof(Dispatcher) * buffer_count_ + sizeof(VAddr)) >> 2;
+    current_offset_ = AlignUp((sizeof(Dispatcher) * buffer_count_ + sizeof(VAddr)) >> 2, 2);
 }
 
 A64::CodeBlock::~CodeBlock() {
@@ -147,11 +147,20 @@ void A64::CodeBlock::GenDispatcherStub(u8 forward_reg, VAddr dispatcher_trampoli
 
     std::memcpy(reinterpret_cast<void *>(GetBufferStart(buffer)),
                 __ GetBuffer()->GetStartAddress<void *>(), stub_size);
+}
 
-    for (int i = 1; i < buffer_count_; ++i) {
-        auto &dispatcher = dispatchers_[i].go_forward_;
-        auto delta = GetBufferStart(buffer) - reinterpret_cast<VAddr>(&dispatcher);
+Buffer *A64::CodeBlock::AllocCodeBuffer(VAddr source) {
+    auto buffer = BaseBlock::AllocCodeBuffer(source);
+    if (buffer->id_ != 0) {
+        auto &dispatcher = dispatchers_[buffer->id_].go_forward_;
+        auto delta = GetBufferStart(GetBuffer(0)) - reinterpret_cast<VAddr>(&dispatcher);
+        bool need_flush = dispatcher != 0;
         // B offset
         dispatcher = 0x14000000 | (0x03ffffff & (static_cast<u32>(delta) >> 2));
+
+        if (need_flush) {
+            ClearCachePlatform(reinterpret_cast<VAddr>(&dispatcher), 4);
+        }
     }
+    return buffer;
 }

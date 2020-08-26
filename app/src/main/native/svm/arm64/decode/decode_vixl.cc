@@ -175,16 +175,40 @@ void VixlJitDecodeVisitor::VisitSystem(const Instruction *instr) {
     Context()->Assembler().Emit(instr->GetInstructionBits());
 }
 
+bool LoadStorePairFloat(const Instruction *instr) {
+    switch (instr->Mask(LoadStorePairMask)) {
+        case LDP_x:
+        case LDP_w:
+        case STP_x:
+        case STP_w:
+            return false;
+        default:
+            return true;
+    }
+}
+
 void VixlJitDecodeVisitor::VisitLoadStorePairOffset(const Instruction *instr) {
-    VisitUnimplemented(instr);
+    if (LoadStorePairFloat(instr)) {
+        LoadStorePair<Float>(Context(), instr->GetRt(), instr->GetRt2(), instr->GetRn());
+    } else {
+        LoadStorePair(Context(), instr->GetRt(), instr->GetRt2(), instr->GetRn());
+    }
 }
 
 void VixlJitDecodeVisitor::VisitLoadStorePairPostIndex(const Instruction *instr) {
-    VisitUnimplemented(instr);
+    if (LoadStorePairFloat(instr)) {
+        LoadStorePair<Float | WriteBack | PostIndex>(Context(), instr->GetRt(), instr->GetRt2(), instr->GetRn());
+    } else {
+        LoadStorePair<WriteBack | PostIndex>(Context(), instr->GetRt(), instr->GetRt2(), instr->GetRn());
+    }
 }
 
 void VixlJitDecodeVisitor::VisitLoadStorePairPreIndex(const Instruction *instr) {
-    VisitUnimplemented(instr);
+    if (LoadStorePairFloat(instr)) {
+        LoadStorePair<Float | WriteBack>(Context(), instr->GetRt(), instr->GetRt2(), instr->GetRn());
+    } else {
+        LoadStorePair<WriteBack>(Context(), instr->GetRt(), instr->GetRt2(), instr->GetRn());
+    }
 }
 
 void VixlJitDecodeVisitor::VisitLoadStorePostIndex(const Instruction *instr) {

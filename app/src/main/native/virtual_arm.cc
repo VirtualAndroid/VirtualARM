@@ -17,8 +17,11 @@ void *TestCase1() {
     Label true_label;
     Label loop;
     __ Reset();
+    __ SetStackPointer(sp);
     __ Bind(&true_label);
+    __ Stp(x29, x30, MemOperand(sp, -16, PreIndex));
     __ Svc(0);
+    __ Ldp(x29, x30, MemOperand(sp, 16, PostIndex));
     __ Sub(x0, x0, 1);
     __ Cbnz(x0, &true_label);
     __ Bind(&loop);
@@ -58,7 +61,7 @@ load_test(JNIEnv *env, jobject instance) {
     context->RegisterCurrent();
     context->GetCpuContext()->cpu_registers[0].X = 50;
     context->GetCpuContext()->pc = reinterpret_cast<u64>(TestCase1());
-    context->GetCpuContext()->sp = reinterpret_cast<u64>(malloc(256 * 1024));
+    context->GetCpuContext()->sp = reinterpret_cast<u64>(malloc(256 * 1024)) + 256 * 1024;
 //    while (debug) {
 //        sleep(1);
 //    }

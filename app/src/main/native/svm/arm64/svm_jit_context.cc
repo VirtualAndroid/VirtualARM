@@ -30,7 +30,7 @@ void RegisterAllocator::ClearContext() {
 const Register &RegisterAllocator::AcquireTempX() {
     for (int i = 0; i < 31; ++i) {
         if (!in_used_[i]) {
-            auto &res = context_->GetXRegister(i);
+            auto &res = context_->GetXRegister(i, true);
             context_->Push(res);
             MarkInUsed(res);
             return res;
@@ -44,15 +44,20 @@ void RegisterAllocator::ReleaseTempX(const Register &x) {
 }
 
 void RegisterAllocator::MarkInUsed(const Register &x, bool in_used) {
+    if (x.IsZero())
+        return;
     in_used_[x.RealCode()] = in_used;
 }
 
 bool RegisterAllocator::InUsed(const Register &x) {
+    if (x.IsZero())
+        return false;
     return in_used_[x.RealCode()];
 }
 
 void RegisterAllocator::Initialize(JitContext *context) {
     context_ = context;
+    ContextPtr();
 }
 
 LabelAllocator::LabelAllocator(MacroAssembler &masm) : masm_(masm) {}
@@ -170,8 +175,9 @@ void JitContext::Set(const Register &w, u32 value) {
 
 void JitContext::Push(const Register &reg) {
     if (reg.IsFPRegister()) {
-        __ Str(reg, MemOperand(register_alloc_.ContextPtr(), OFFSET_CTX_A64_VEC_REG + 16 * reg.RealCode()));
-    } else if (register_alloc_.InUsed(reg)) {
+        __ Str(reg, MemOperand(register_alloc_.ContextPtr(),
+                               OFFSET_CTX_A64_VEC_REG + 16 * reg.RealCode()));
+    } else if (register_alloc_.InUsed(reg) || reg.IsZero()) {
         return;
     } else if (reg.IsSP()) {
         auto &tmp = register_alloc_.AcquireTempX();
@@ -187,7 +193,7 @@ void JitContext::Pop(const Register &reg) {
     if (reg.IsFPRegister()) {
         __ Ldr(reg, MemOperand(register_alloc_.ContextPtr(),
                                OFFSET_CTX_A64_VEC_REG + 16 * reg.RealCode()));
-    } else if (register_alloc_.InUsed(reg)) {
+    } else if (register_alloc_.InUsed(reg) || reg.IsZero()) {
         return;
     } else if (reg.IsSP()) {
         auto &tmp = register_alloc_.AcquireTempX();
@@ -604,39 +610,69 @@ void JitContext::ABICall(const ABICallHelp::Reason call, const Register &xt) {
     __ Br(tmp);
 }
 
-RegisterGuard::RegisterGuard(const ContextA64 &context, const Register &target) : context_(context),
-                                                                                  target_(target) {
+RegisterGuard::RegisterGuard(const ContextA64 &context, const std::vector<Register> &targets)
+        : context_(context), targets_(std::move(targets)) {
     auto &reg_allocator = context->GetRegisterAlloc();
-    use_tmp = reg_allocator.InUsed(target);
-    if (use_tmp) {
-        tmp = reg_allocator.AcquireTempX();
-        context_->Assembler().Ldr(tmp,
-                                  MemOperand(reg_allocator.ContextPtr(), target_.RealCode() * 8));
+    std::fill(tmp_peeks_.begin(), tmp_peeks_.end(), -1);
+    Resize(targets_.size());
+    for (int i = 0; i < targets_.size(); ++i) {
+        if (targets_[i].IsZero()) {
+            continue;
+        }
+        int peeked_tmp = tmp_peeks_[targets_[i].RealCode()];
+        if (peeked_tmp >= 0) {
+            use_tmp_[i] = true;
+            tmps_[i] = tmps_[peeked_tmp];
+            continue;
+        }
+        use_tmp_[i] = reg_allocator.InUsed(targets_[i]);
+        if (use_tmp_[i]) {
+            tmps_[i] = reg_allocator.AcquireTempX();
+            context_->Assembler().Ldr(tmps_[i],
+                                      MemOperand(reg_allocator.ContextPtr(),
+                                                 targets_[i].RealCode() * 8));
+            tmp_peeks_[targets_[i].RealCode()] = i;
+        } else {
+            reg_allocator.MarkInUsed(targets_[i]);
+        }
     }
 }
 
 RegisterGuard::~RegisterGuard() {
-    if (use_tmp) {
-        auto &reg_allocator = context_->GetRegisterAlloc();
-        // if dirty, need write back
-        if (dirty) {
-            context_->Assembler().Str(tmp, MemOperand(reg_allocator.ContextPtr(),
-                                                      target_.RealCode() * 8));
+    auto &reg_allocator = context_->GetRegisterAlloc();
+    for (int i = 0; i < targets_.size(); ++i) {
+        if (use_tmp_[i] && tmp_peeks_[targets_[i].RealCode()] == i) {
+            // if dirty, need write back
+            if (dirty_[i]) {
+                context_->Assembler().Str(tmps_[i], MemOperand(reg_allocator.ContextPtr(),
+                                                               targets_[i].RealCode() * 8));
+            }
+            reg_allocator.ReleaseTempX(tmps_[i]);
+        } else {
+            reg_allocator.MarkInUsed(targets_[i], false);
         }
-        reg_allocator.ReleaseTempX(tmp);
     }
 }
 
-void RegisterGuard::Dirty() {
-    dirty = true;
+void RegisterGuard::Dirty(int pos) {
+    if (use_tmp_[pos]) {
+        int p = tmp_peeks_[targets_[pos].RealCode()];
+        dirty_[p] = true;
+    }
 }
 
-const Register &RegisterGuard::Target() const {
-    if (use_tmp) {
-        return tmp;
+const Register &RegisterGuard::Target(int pos) const {
+    if (use_tmp_[pos]) {
+        return tmps_[pos];
     } else {
-        return target_;
+        return targets_[pos];
     }
+}
+
+void RegisterGuard::Resize(int size) {
+    tmps_.resize(size);
+    use_tmp_.resize(size);
+    dirty_.resize(size);
 }
 
 #undef __

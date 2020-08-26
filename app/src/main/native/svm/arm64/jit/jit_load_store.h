@@ -15,7 +15,7 @@ using namespace SVM::A64;
 namespace Jit::A64 {
 #define __ masm_.
 
-    template <bool align_page = false>
+    template<bool align_page = false>
     void Addressing(ContextA64 context, u8 rd, s64 offset) {
 
         auto base = context->PC();
@@ -25,9 +25,9 @@ namespace Jit::A64 {
             base = RoundDown(base, PAGE_SIZE);
         }
 
-        auto target =  base + offset;
+        auto target = base + offset;
 
-        RegisterGuard guard(context, context->GetXRegister(rd));
+        RegisterGuard guard(context, {context->GetXRegister(rd)});
         context->Set(guard.Target(), target);
         guard.Dirty();
     }
@@ -57,11 +57,11 @@ namespace Jit::A64 {
         } else if constexpr (flags & Prfm) {
             __ Prfm(PrefetchOperation(context->Instr().Rt), MemOperand(tmp));
         } else if constexpr (flags & LoadSigned) {
-            RegisterGuard guard(context, context->GetXRegister(rt));
+            RegisterGuard guard(context, {context->GetXRegister(rt)});
             guard.Dirty();
             __ Ldrsw(guard.Target(), MemOperand(tmp));
         } else {
-            RegisterGuard guard(context, context->GetXRegister(rt));
+            RegisterGuard guard(context, {context->GetXRegister(rt)});
             guard.Dirty();
             if constexpr (sizeof(T) == 8) {
                 __ Ldr(guard.Target(), MemOperand(tmp));
@@ -80,9 +80,38 @@ namespace Jit::A64 {
 
     }
 
-    template<typename T, unsigned flags = 0>
+    template<unsigned flags = 0, typename T = u64>
     void LoadStorePair(ContextA64 context, u8 rt, u8 rt2, u8 rn) {
 
+        std::vector<Register> effect_regs;
+
+        if constexpr (flags & Float) {
+            effect_regs = {context->GetXRegister(rn, true)};
+        } else {
+            effect_regs = {context->GetXRegister(rn, true), context->GetXRegister(rt), context->GetXRegister(rt2)};
+        }
+
+        RegisterGuard guard(context, effect_regs);
+
+        if constexpr (flags & WriteBack) {
+            guard.Dirty(0);
+        }
+
+        // read
+        if constexpr (!(flags & LoadStoreFlags::Write) && !(flags & Float)) {
+            guard.Dirty(1);
+            guard.Dirty(2);
+        }
+
+        auto instr = context->Instr();
+        instr.Rn = guard.Target(0).RealCode();
+
+        if constexpr (!(flags & Float)) {
+            instr.Rt = guard.Target(1).RealCode();
+            instr.Rt2 = guard.Target(2).RealCode();
+        }
+
+        context->Assembler().Emit(instr.raw);
     }
 
 #undef __

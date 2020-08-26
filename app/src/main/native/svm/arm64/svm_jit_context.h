@@ -221,20 +221,25 @@ namespace Jit::A64 {
 
     class RegisterGuard {
     public:
-        RegisterGuard(const ContextA64 &context, const Register &target);
+
+        RegisterGuard(const ContextA64 &context, const std::vector<Register> &targets);
 
         ~RegisterGuard();
 
-        const Register &Target() const;
+        const Register &Target(int pos = 0) const;
 
-        void Dirty();
+        void Dirty(int pos = 0);
 
     private:
+
+        void Resize(int reg_count);
+
         ContextA64 context_;
-        const Register &target_;
-        Register tmp;
-        bool use_tmp{false};
-        bool dirty{false};
+        std::vector<Register> targets_;
+        std::vector<Register> tmps_;
+        std::vector<bool> use_tmp_{false};
+        std::vector<bool> dirty_{false};
+        std::array<int, 32> tmp_peeks_;
     };
 
 }

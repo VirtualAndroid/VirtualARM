@@ -28,7 +28,7 @@ namespace Jit::A64 {
 
         if constexpr (flags & Comp) {
             {
-                RegisterGuard guard(context, context->GetXRegister(rt));
+                RegisterGuard guard(context, {context->GetXRegister(rt)});
                 auto reg_rt = (flags & CompW) ? guard.Target().W() : guard.Target();
                 if (flags & Negate) {
                     __ Cbnz(reg_rt, branch);
@@ -39,7 +39,7 @@ namespace Jit::A64 {
             context->Forward(context->PC() + 4);
         } else if constexpr (flags & BrunchFlags::TestBit) {
             {
-                RegisterGuard guard(context, context->GetXRegister(rt));
+                RegisterGuard guard(context, {context->GetXRegister(rt)});
                 auto bit = context->Instr().b40 | (context->Instr().b5 << 5);
                 if (flags & Negate) {
                     __ Tbnz(guard.Target(), bit, branch);

@@ -26,7 +26,8 @@ namespace Decode::A64 {
         ExtendTo64  = 1 << 8,
         Acquire     = 1 << 9,
         Prfm        = 1 << 10,
-        LoadSigned  = 1 << 11
+        LoadSigned  = 1 << 11,
+        Write       = 1 << 12
     };
 
     enum ExceptionFlags {

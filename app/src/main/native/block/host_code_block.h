@@ -92,6 +92,8 @@ namespace Jit {
             CodeBlock(u32 block_size = BLOCK_SIZE_A64);
             virtual ~CodeBlock();
 
+            Buffer *AllocCodeBuffer(VAddr source) override;
+
             void GenDispatcherStub(u8 reg_forward, VAddr dispatcher_trampoline);
 
             void FlushCodeBuffer(Buffer *buffer, u32 size) override;
