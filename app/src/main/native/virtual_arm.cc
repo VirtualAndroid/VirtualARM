@@ -26,6 +26,8 @@ void *TestCase1() {
     __ Cbnz(x0, &true_label);
     __ Bind(&loop);
     __ Nop();
+    __ Nop();
+    __ Nop();
     __ Bl(&loop);
     __ Ret();
 
@@ -62,6 +64,8 @@ load_test(JNIEnv *env, jobject instance) {
     context->GetCpuContext()->cpu_registers[0].X = 50;
     context->GetCpuContext()->pc = reinterpret_cast<u64>(TestCase1());
     context->GetCpuContext()->sp = reinterpret_cast<u64>(malloc(256 * 1024)) + 256 * 1024;
+    assert(context->GetCpuContext()->ticks_now == 0);
+    assert(context->GetCpuContext()->ticks_max == 0);
 //    while (debug) {
 //        sleep(1);
 //    }

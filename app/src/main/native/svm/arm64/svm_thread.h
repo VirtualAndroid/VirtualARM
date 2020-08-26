@@ -81,7 +81,7 @@ namespace SVM::A64 {
     protected:
         std::vector<u8> interrupt_stack_;
         alignas(8)
-        CPUContext cpu_context_;
+        CPUContext cpu_context_{};
     };
 
     class JitThreadContext : public ThreadContext {
