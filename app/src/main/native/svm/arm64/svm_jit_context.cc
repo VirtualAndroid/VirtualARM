@@ -361,21 +361,16 @@ void JitContext::CheckTicks() {
     Label *continue_label = label_allocator_.AllocLabel();
     auto tmp1 = reg_forward_;
     auto tmp2 = register_alloc_.AcquireTempX();
-    auto tmp3 = register_alloc_.AcquireTempX();
     __ Ldr(tmp1, MemOperand(register_alloc_.ContextPtr(), OFFSET_OF(CPUContext, ticks_now)));
     __ Ldr(tmp2, MemOperand(register_alloc_.ContextPtr(), OFFSET_OF(CPUContext, ticks_max)));
-    __ Mrs(tmp3.W(), NZCV);
-    __ Subs(tmp2, tmp2, tmp1);
+    __ Cmp(tmp2, tmp1);
     register_alloc_.ReleaseTempX(tmp2);
-    __ B(continue_label, Condition::gt);
-    __ Msr(NZCV, tmp3.W());
+    __ Cset(tmp1.W(), Condition::ls);
+    __ Tbz(tmp1.W(), 0, continue_label);
     // Return Host
-    register_alloc_.ReleaseTempX(tmp3);
     LoadGlobalStub(reg_forward_, GlobalStubs::ReturnToHostOffset());
     __ Br(reg_forward_);
     __ Bind(continue_label);
-    __ Msr(NZCV, tmp3.W());
-    register_alloc_.ReleaseTempX(tmp3);
 }
 
 void JitContext::Terminal(const Register &tmp) {
@@ -445,7 +440,7 @@ void JitContext::Interrupt(const InterruptHelp &interrupt) {
     Push(reg_forward_);
     Terminal(reg_forward_);
     __ Mov(tmp, interrupt.reason);
-    __ Str(tmp.W(), MemOperand(reg_ctx, OFFSET_OF(CPUContext, interrupt.reason)));
+    __ Str(tmp, MemOperand(reg_ctx, OFFSET_OF(CPUContext, interrupt.reason)));
     __ Mov(tmp, interrupt.data);
     __ Str(tmp, MemOperand(reg_ctx, OFFSET_OF(CPUContext, interrupt.data)));
     LoadGlobalStub(reg_forward_, GlobalStubs::FullInterruptOffset());
@@ -513,8 +508,7 @@ void JitContext::LookupPageTable(const Register &rt, const VirtualAddress &va, b
     Push(rt);
     Push(reg_forward_);
     __ Mov(reg_forward_, InterruptHelp::PageFatal);
-    __ Str(reg_forward_.W(),
-           MemOperand(register_alloc_.ContextPtr(), OFFSET_OF(CPUContext, interrupt.reason)));
+    __ Str(reg_forward_, MemOperand(register_alloc_.ContextPtr(), OFFSET_OF(CPUContext, interrupt.reason)));
     if (va.ConstAddress()) {
         __ Mov(reg_forward_, va.Address());
         __ Str(reg_forward_, MemOperand(register_alloc_.ContextPtr(), OFFSET_CTX_A64_QUERY_PAGE));
@@ -588,7 +582,7 @@ void JitContext::ABICall(const ABICallHelp &call_help) {
     Push(reg_forward_);
     Terminal(reg_forward_);
     __ Mov(tmp, call_help.reason);
-    __ Str(tmp.W(), MemOperand(reg_ctx, OFFSET_OF(CPUContext, abi_call.reason)));
+    __ Str(tmp, MemOperand(reg_ctx, OFFSET_OF(CPUContext, abi_call.reason)));
     __ Mov(tmp, call_help.data);
     __ Str(tmp, MemOperand(reg_ctx, OFFSET_OF(CPUContext, abi_call.data)));
     LoadGlobalStub(reg_forward_, GlobalStubs::FullInterruptOffset());
@@ -604,7 +598,7 @@ void JitContext::ABICall(const ABICallHelp::Reason call, const Register &xt) {
     }
     __ Str(tmp, MemOperand(reg_ctx, OFFSET_OF(CPUContext, abi_call.data)));
     __ Mov(tmp, call);
-    __ Str(tmp.W(), MemOperand(reg_ctx, OFFSET_OF(CPUContext, abi_call.reason)));
+    __ Str(tmp, MemOperand(reg_ctx, OFFSET_OF(CPUContext, abi_call.reason)));
     Terminal(tmp);
     LoadGlobalStub(tmp, GlobalStubs::FullInterruptOffset());
     __ Br(tmp);

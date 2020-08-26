@@ -104,7 +104,7 @@ namespace CPU::A64 {
     };
 
     struct InterruptHelp {
-        enum Reason : u32 {
+        enum Reason : u64 {
             Svc,
             Hvc,
             Brk,
@@ -122,7 +122,7 @@ namespace CPU::A64 {
     };
 
     struct ABICallHelp {
-        enum Reason : u32 {
+        enum Reason : u64 {
             IC_IVAU,
             GetTicks
         };
