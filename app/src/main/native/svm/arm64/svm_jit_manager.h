@@ -9,6 +9,7 @@
 #include <block/code_cache.h>
 #include <block/host_code_block.h>
 #include <list>
+#include <block/code_find_table.h>
 
 namespace SVM::A64 {
     class Instance;
@@ -70,6 +71,7 @@ namespace Jit::A64 {
 
         SharedPtr<Instance> instance_;
         SharedPtr<JitCacheA64> jit_cache_;
+        SharedPtr<FindTable<VAddr>> cache_find_table_;
         rigtorp::MPMCQueue<JitCacheEntry *> queue_;
         std::list<SharedPtr<JitThread>> jit_threads_;
     };

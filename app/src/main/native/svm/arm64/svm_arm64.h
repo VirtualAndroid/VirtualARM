@@ -45,6 +45,8 @@ namespace SVM::A64 {
 
         Instance(const JitConfig &jit, const MmuConfig &mmu);
 
+        virtual ~Instance();
+
         void Initialize();
 
         const JitConfig &GetJitConfig() const;

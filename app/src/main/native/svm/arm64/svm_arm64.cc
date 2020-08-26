@@ -24,12 +24,10 @@ Instance::Instance() {
             .writable_bit = 1,
             .executable_bit = 2
     };
-    Instance(jit_config_, mmu_config_);
 }
 
 Instance::Instance(const JitConfig &jit, const MmuConfig &mmu) : jit_config_(jit),
-                                                                 mmu_config_(mmu) {
-}
+                                                                 mmu_config_(mmu) {}
 
 void Instance::Initialize() {
     code_find_table_ = SharedPtr<FindTable<VAddr>>(new FindTable<VAddr>(mmu_config_.addr_width, 2));
@@ -56,9 +54,6 @@ const SharedPtr<GlobalStubs> &Instance::GetGlobalStubs() const {
 
 JitCacheEntry *Instance::FindAndJit(VAddr addr) {
     auto entry = jit_manager_->EmplaceJit(addr);
-    if (entry) {
-        code_find_table_->FillCodeAddress(entry->addr_start, entry->Data().GetStub());
-    }
     return entry;
 }
 
@@ -113,4 +108,8 @@ CodeBlock *Instance::PeekCacheBlock(VAddr pc) {
 
 void Instance::ProtectCodeSegment(VAddr start, VAddr end) {
     //TODO signal handler
+}
+
+Instance::~Instance() {
+    abort();
 }

@@ -18,7 +18,7 @@ void *TestCase1() {
     Label loop;
     __ Reset();
     __ Bind(&loop);
-    __ Push(x0, x1, x2, x3);
+    __ Sub(x1, x2, x3);
     __ Svc(100);
     __ Sub(x1, x2, x3);
     __ Mov(x1, x2);
@@ -42,18 +42,34 @@ void *TestCase1() {
 
 bool debug = true;
 
+class MyEmuThread : public EmuThreadContext {
+public:
+    MyEmuThread(const SharedPtr<Instance> &instance) : EmuThreadContext(instance) {
+
+    }
+
+    ~MyEmuThread() {
+        abort();
+    }
+
+    void Interrupt(InterruptHelp &interrupt) override {
+        LOGE("Interrupt");
+        cpu_context_.pc += 4;
+    }
+};
+
 extern "C"
 JNIEXPORT void JNICALL
 load_test(JNIEnv *env, jobject instance) {
     auto svm = SharedPtr<Instance>(new Instance());
     svm->Initialize();
-    auto context = SharedPtr<EmuThreadContext>(new EmuThreadContext(svm));
+    auto context = SharedPtr<MyEmuThread>(new MyEmuThread(svm));
     context->RegisterCurrent();
     context->GetCpuContext()->cpu_registers[0].X = 1;
     context->GetCpuContext()->pc = reinterpret_cast<u64>(TestCase1());
     context->GetCpuContext()->sp = reinterpret_cast<u64>(malloc(256 * 1024));
-    context->Run(10);
-    abort();
+    context->Run(200);
+    LOGE("RunTicks %llu", context->GetCpuContext()->ticks_now);
 }
 
 static bool registerNativeMethods(JNIEnv *env, const char *className, JNINativeMethod *jniMethods, int methods) {

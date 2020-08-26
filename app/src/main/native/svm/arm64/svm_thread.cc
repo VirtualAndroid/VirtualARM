@@ -68,10 +68,7 @@ EmuThreadContext::EmuThreadContext(const SharedPtr<Instance> &instance) : Thread
 
 void EmuThreadContext::Run(size_t ticks) {
     cpu_context_.ticks_max += ticks;
-    auto jit_cache = instance_->FindAndJit(cpu_context_.pc);
-    if (jit_cache && jit_cache->Data().GetStub()) {
-        cpu_context_.code_cache = jit_cache->Data().GetStub();
-    }
+    LookupJitCache();
     instance_->GetGlobalStubs()->RunCode(&cpu_context_);
 }
 
@@ -81,6 +78,13 @@ ThreadType EmuThreadContext::Type() {
 
 CPUContext *EmuThreadContext::GetCpuContext() {
     return &cpu_context_;
+}
+
+void EmuThreadContext::LookupJitCache() {
+    auto jit_cache = instance_->FindAndJit(cpu_context_.pc);
+    if (jit_cache && jit_cache->Data().GetStub()) {
+        cpu_context_.code_cache = jit_cache->Data().GetStub();
+    }
 }
 
 JitThreadContext::JitThreadContext(const SharedPtr<Instance> &instance) : ThreadContext(instance) {}

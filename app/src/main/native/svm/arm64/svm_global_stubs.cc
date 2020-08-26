@@ -20,21 +20,17 @@ constexpr static size_t stub_memory_size = PAGE_SIZE;
 CPUContext *GlobalStubs::InterruptStub(CPUContext *context) {
     auto thread_ctx = reinterpret_cast<EmuThreadContext *>(context->context_ptr);
     thread_ctx->Interrupt(context->interrupt);
-    auto jit_cache = thread_ctx->GetInstance()->FindAndJit(context->pc);
-    if (jit_cache && jit_cache->Data().GetStub()) {
-        context->code_cache = jit_cache->Data().GetStub();
-    } else {
+    thread_ctx->LookupJitCache();
+    if (!context->code_cache) {
         thread_ctx->Fallback();
     }
     return context;
 }
 
-CPUContext *GlobalStubs::CodeCacheMissStub(CPUContext *context) {
+CPUContext *GlobalStubs::JitCacheMissStub(CPUContext *context) {
     auto thread_ctx = reinterpret_cast<EmuThreadContext *>(context->context_ptr);
-    auto jit_cache = thread_ctx->GetInstance()->FindAndJit(context->pc);
-    if (jit_cache && jit_cache->Data().GetStub()) {
-        context->code_cache = jit_cache->Data().GetStub();
-    } else {
+    thread_ctx->LookupJitCache();
+    if (!context->code_cache) {
         thread_ctx->Fallback();
     }
     return context;
@@ -130,7 +126,7 @@ void GlobalStubs::BuildForwardCodeCache() {
     __ Ldp(tmp1, tmp2, MemOperand(context_reg_, tmp1.RealCode() * 8));
     __ Ldr(forward_reg_, MemOperand(context_reg_, forward_reg_.RealCode() * 8));
     ABISaveGuestContext(masm_, tmp1);
-    __ Mov(forward_reg_, (VAddr) CodeCacheMissStub);
+    __ Mov(forward_reg_, (VAddr) JitCacheMissStub);
     __ Mov(x0, context_reg_);
     __ Blr(forward_reg_);
     __ Mov(context_reg_, x0);
@@ -150,6 +146,8 @@ void GlobalStubs::BuildForwardCodeCache() {
 }
 
 void GlobalStubs::FullSaveGuestContext(MacroAssembler &masm_, Register &tmp) {
+    //restore tmp
+    __ Ldr(tmp, MemOperand(context_reg_, tmp.RealCode() * 8));
     // x regs
     for (int i = 0; i < 30; i += 2) {
         if (i == context_reg_.RealCode()) {
@@ -218,9 +216,13 @@ void GlobalStubs::FullRestoreGuestContext(MacroAssembler &masm_, Register &tmp) 
         __ Ldp(VRegister::GetVRegFromCode(i), VRegister::GetVRegFromCode(i + 1),
                MemOperand(tmp, 16 * i));
     }
+    //restore tmp
+    __ Ldr(tmp, MemOperand(context_reg_, tmp.RealCode() * 8));
 }
 
 void GlobalStubs::ABISaveGuestContext(MacroAssembler &masm_, Register &tmp) {
+    //restore tmp
+    __ Ldr(tmp, MemOperand(context_reg_, tmp.RealCode() * 8));
     // x regs
     for (int i = 0; i < 19; i += 2) {
         if (i == context_reg_.RealCode()) {
@@ -281,6 +283,8 @@ void GlobalStubs::ABIRestoreGuestContext(MacroAssembler &masm_, Register &tmp) {
         __ Ldp(VRegister::GetVRegFromCode(i), VRegister::GetVRegFromCode(i + 1),
                MemOperand(tmp, 16 * i));
     }
+    //restore tmp
+    __ Ldr(tmp, MemOperand(context_reg_, tmp.RealCode() * 8));
 }
 
 void GlobalStubs::SaveHostContext(MacroAssembler &masm_) {
@@ -417,6 +421,7 @@ void GlobalStubs::BuildHostToGuestStub() {
     MacroAssembler masm_;
     auto tmp = x0;
     Label code_lookup_label;
+
     SaveHostContext(masm_);
 
     // load context ptr

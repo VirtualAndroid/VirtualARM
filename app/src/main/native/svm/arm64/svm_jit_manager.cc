@@ -13,6 +13,7 @@ JitManager::JitManager(const SharedPtr<Instance> &instance) : instance_(instance
 }
 
 void JitManager::Initialize() {
+    cache_find_table_ = instance_->GetCodeFindTable();
     for (int i = 0; i < instance_->GetJitConfig().jit_thread_count; ++i) {
         jit_threads_.emplace_back(std::make_shared<JitThread>(SharedFrom(this)));
     }
@@ -74,6 +75,7 @@ void JitManager::JitUnsafe(JitCacheEntry *entry) {
     auto cache_size = jit_context.BlockCacheSize();
     code_block->FlushCodeBuffer(buffer, cache_size);
     jit_context.EndBlock();
+    entry->Data().ready = true;
 }
 
 JitCacheEntry *JitManager::EmplaceJit(VAddr addr) {
@@ -107,6 +109,7 @@ void JitManager::EmplaceCacheAllocation(JitCacheEntry *entry) {
     if (!entry->Data().id_in_block) {
         auto buffer = code_block->AllocCodeBuffer(entry->addr_start);
         entry->Data().id_in_block = buffer->id_;
+        cache_find_table_->FillCodeAddress(entry->addr_start, code_block->GetDispatcherAddr(buffer));
     }
 }
 

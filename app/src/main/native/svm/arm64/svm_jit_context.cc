@@ -171,7 +171,7 @@ void JitContext::Set(const Register &w, u32 value) {
 
 void JitContext::Push(const Register &reg) {
     if (reg.IsFPRegister()) {
-        __ Str(reg, MemOperand(register_alloc_.ContextPtr(), 8 * reg.RealCode()));
+        __ Str(reg, MemOperand(register_alloc_.ContextPtr(), OFFSET_CTX_A64_VEC_REG + 16 * reg.RealCode()));
     } else if (register_alloc_.InUsed(reg)) {
         return;
     } else if (reg.IsSP()) {
@@ -180,15 +180,14 @@ void JitContext::Push(const Register &reg) {
         __ Str(reg, MemOperand(register_alloc_.ContextPtr(), 8 * reg.RealCode()));
         register_alloc_.ReleaseTempX(tmp);
     } else {
-        register_alloc_.MarkInUsed(reg);
-        __ Str(reg, MemOperand(register_alloc_.ContextPtr(), 16 * reg.RealCode()));
-        register_alloc_.MarkInUsed(reg, false);
+        __ Str(reg, MemOperand(register_alloc_.ContextPtr(), 8 * reg.RealCode()));
     }
 }
 
 void JitContext::Pop(const Register &reg) {
     if (reg.IsFPRegister()) {
-        __ Ldr(reg, MemOperand(register_alloc_.ContextPtr(), 8 * reg.RealCode()));
+        __ Ldr(reg, MemOperand(register_alloc_.ContextPtr(),
+                               OFFSET_CTX_A64_VEC_REG + 16 * reg.RealCode()));
     } else if (register_alloc_.InUsed(reg)) {
         return;
     } else if (reg.IsSP()) {
@@ -197,8 +196,7 @@ void JitContext::Pop(const Register &reg) {
         __ Mov(reg, tmp);
         register_alloc_.ReleaseTempX(tmp);
     } else {
-        __ Ldr(reg, MemOperand(register_alloc_.ContextPtr(),
-                               OFFSET_CTX_A64_VEC_REG + 16 * reg.RealCode()));
+        __ Ldr(reg, MemOperand(register_alloc_.ContextPtr(), 8 * reg.RealCode()));
     }
 }
 

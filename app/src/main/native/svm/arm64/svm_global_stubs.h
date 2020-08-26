@@ -48,7 +48,7 @@ namespace SVM::A64 {
 
         static CPU::A64::CPUContext *InterruptStub(CPU::A64::CPUContext *context);
         static CPU::A64::CPUContext *ABIStub(CPU::A64::CPUContext *context);
-        static CPU::A64::CPUContext *CodeCacheMissStub(CPU::A64::CPUContext *context);
+        static CPU::A64::CPUContext *JitCacheMissStub(CPU::A64::CPUContext *context);
 
         CPU::A64::CPUContext *(*host_to_guest_)(CPU::A64::CPUContext *);
         VAddr return_to_host_;

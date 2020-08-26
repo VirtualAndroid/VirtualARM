@@ -63,18 +63,22 @@ namespace SVM::A64 {
 
         void Run(size_t ticks = default_jit_run_ticks);
 
+        void LookupJitCache();
+
         CPUContext *GetCpuContext();
 
         ThreadType Type() override;
 
         // User Callbacks
-        virtual void Interrupt(InterruptHelp &interrupt) {};
+        virtual void Interrupt(InterruptHelp &interrupt) {
+            cpu_context_.pc += 4;
+        };
 
         virtual void Fallback() {};
 
         virtual u64 GetClockTicks() { return 0; };
 
-    private:
+    protected:
         CPUContext cpu_context_;
         std::vector<u8> interrupt_stack_;
     };
