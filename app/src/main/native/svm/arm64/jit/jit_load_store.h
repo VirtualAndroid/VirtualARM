@@ -97,13 +97,14 @@ namespace Jit::A64 {
             guard.Dirty(0);
         }
 
-        // read
-        if constexpr (!(flags & LoadStoreFlags::Write) && !(flags & Float)) {
+        auto instr = context->Instr();
+
+        // load
+        if (instr.L == 1 && !(flags & Float)) {
             guard.Dirty(1);
             guard.Dirty(2);
         }
 
-        auto instr = context->Instr();
         instr.Rn = guard.Target(0).RealCode();
 
         if constexpr (!(flags & Float)) {

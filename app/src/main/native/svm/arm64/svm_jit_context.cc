@@ -626,8 +626,6 @@ RegisterGuard::RegisterGuard(const ContextA64 &context, const std::vector<Regist
                                       MemOperand(reg_allocator.ContextPtr(),
                                                  targets_[i].RealCode() * 8));
             tmp_peeks_[targets_[i].RealCode()] = i;
-        } else {
-            reg_allocator.MarkInUsed(targets_[i]);
         }
     }
 }
@@ -642,8 +640,6 @@ RegisterGuard::~RegisterGuard() {
                                                                targets_[i].RealCode() * 8));
             }
             reg_allocator.ReleaseTempX(tmps_[i]);
-        } else {
-            reg_allocator.MarkInUsed(targets_[i], false);
         }
     }
 }
