@@ -69,6 +69,8 @@ namespace SVM::A64 {
 
     private:
 
+        bool Executable(VAddr vaddr);
+
         void ProtectCodeSegment(VAddr start, VAddr end);
 
         JitConfig jit_config_;

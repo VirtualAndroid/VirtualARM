@@ -5,6 +5,7 @@
 #include <asm/arm64/cpu_arm64.h>
 #include <platform/memory.h>
 #include <base/hash_table.h>
+#include <base/log.h>
 #include "svm_global_stubs.h"
 #include "svm_arm64.h"
 #include "block/code_find_table.h"
@@ -90,6 +91,7 @@ VAddr GlobalStubs::GetAbiInterrupt() const {
 
 void GlobalStubs::BuildForwardCodeCache() {
     MacroAssembler masm_;
+    auto dispatcher = instance_->GetCodeFindTable();
     auto tmp1 = x0;
     auto tmp2 = x1;
     auto rt = forward_reg_;
@@ -99,15 +101,17 @@ void GlobalStubs::BuildForwardCodeCache() {
     // save tmp1, tmp2;
     __ Stp(tmp1, tmp2, MemOperand(context_reg_, tmp1.RealCode() * 8));
     // load rt
-    __ Ldr(rt, MemOperand(context_reg_, OFFSET_CTX_A64_CODE_CACHE));
-    // Find hash table
+    __ Ldr(rt, MemOperand(context_reg_, OFFSET_CTX_A64_PC));
+    // load hash table
     __ Ldr(tmp1, MemOperand(context_reg_, OFFSET_CTX_A64_DISPATCHER_TABLE));
-    __ Lsr(tmp2, rt, CODE_CACHE_HASH_BITS);
-    __ Bfc(tmp2, instance_->GetCodeFindTable()->TableBits(),
-           sizeof(VAddr) * 8 - instance_->GetCodeFindTable()->TableBits());
+    __ Lsr(tmp2, rt, dispatcher->align_bits_ + CODE_CACHE_HASH_BITS + dispatcher->redun_bits);
+    __ Bfc(tmp2, dispatcher->TableBits(),
+           sizeof(VAddr) * 8 -  dispatcher->TableBits());
+
     __ Ldr(tmp1, MemOperand(tmp1, tmp2, LSL, 3));
     __ Cbz(tmp1, &miss_target);
-    __ And(tmp2, rt, (CODE_CACHE_HASH_SIZE - CODE_CACHE_HASH_OVERP) << 2);
+    __ Mov(tmp2, CODE_CACHE_HASH_SIZE << 2);
+    __ And(tmp2, rt, tmp2);
     // 2 + 2 = 4 = 16字节 = Entry 大小
     __ Add(tmp1, tmp1, Operand(tmp2, LSL, 2));
     __ Bind(&label_loop);
@@ -121,7 +125,7 @@ void GlobalStubs::BuildForwardCodeCache() {
     __ Ldp(tmp1, tmp2, MemOperand(context_reg_, tmp1.RealCode() * 8));
     __ Br(forward_reg_);
     // can not find from table
-    __ B(&miss_target);
+    __ Bind(&miss_target);
     __ Ldp(tmp1, tmp2, MemOperand(context_reg_, tmp1.RealCode() * 8));
     __ Ldr(forward_reg_, MemOperand(context_reg_, forward_reg_.RealCode() * 8));
     ABISaveGuestContext(masm_, tmp1);

@@ -317,14 +317,15 @@ namespace Memory {
 
     protected:
         const u8 addr_width_;
-        const u8 page_bits_;
-        const AddrType page_size_;
-        const AddrType page_mask_;
         u8 pte_bits_;
         std::size_t pte_size_;
         u8 level_;
         std::vector<Table *> pages_;
         SharedPtr<TLB<AddrType, PTE>> tlb_;
+    public:
+        const u8 page_bits_;
+        const AddrType page_size_;
+        const AddrType page_mask_;
     };
 
 

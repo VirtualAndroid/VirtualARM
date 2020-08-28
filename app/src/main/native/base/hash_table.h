@@ -5,9 +5,10 @@
 #pragma once
 
 #include "marcos.h"
+#include "log.h"
 
 #define CODE_CACHE_HASH_BITS 18
-#define CODE_CACHE_HASH_SIZE (1 << (CODE_CACHE_HASH_BITS + 1) - 1)//14071
+#define CODE_CACHE_HASH_SIZE ((1 << (CODE_CACHE_HASH_BITS + 1)) - 1)//14071
 #define CODE_CACHE_HASH_OVERP 10
 
 /* Warning, size MUST be (a power of 2) */
@@ -22,8 +23,8 @@ namespace Utils {
 
     template <typename Key, typename Value>
     struct HashEntry {
-        Key key_;
-        Value value_;
+        Key key_{};
+        Value value_{};
     };
 
     // for code lookup
@@ -38,14 +39,14 @@ namespace Utils {
         Value &Get(Key &key);
 
         HashEntry<Key, Value>* GetHashEntryPtr() {
-            return entries;
+            return entries.data();
         }
 
     protected:
         int size_;
         int collisions_{0};
         int count_{0};
-        HashEntry<Key, Value> entries[CODE_CACHE_HASH_SIZE + CODE_CACHE_HASH_OVERP];
+        std::vector<HashEntry<Key, Value>> entries;
     };
 
 
@@ -78,9 +79,7 @@ namespace Utils {
 
     template<typename Key, typename Value>
     SimpleHashTable<Key, Value>::SimpleHashTable(int size) : size_(size) {
-        for (int i = size-1; i >= 0; i--) {
-            entries[i].key_ = 0;
-        }
+        entries.resize(size);
     }
 
     template<typename Key, typename Value>

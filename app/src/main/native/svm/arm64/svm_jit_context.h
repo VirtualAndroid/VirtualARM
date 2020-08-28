@@ -210,6 +210,8 @@ namespace Jit::A64 {
 
         // mmu
         void LookupTLB(const Register &rt, const VirtualAddress &va, Label *miss_cache);
+        // lookup l1 cache
+        void LookupL1(const Register &rt, const VirtualAddress &va, Label *miss_cache);
 
         u8 address_bits_unused_{};
         u8 page_bits_{};

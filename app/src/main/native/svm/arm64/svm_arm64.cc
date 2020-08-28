@@ -53,6 +53,9 @@ const SharedPtr<GlobalStubs> &Instance::GetGlobalStubs() const {
 }
 
 JitCacheEntry *Instance::FindAndJit(VAddr addr) {
+    if (BOOST_UNLIKELY(!Executable(addr))) {
+        return nullptr;
+    }
     auto entry = jit_manager_->EmplaceJit(addr);
     return entry;
 }
@@ -108,4 +111,17 @@ CodeBlock *Instance::PeekCacheBlock(VAddr pc) {
 
 void Instance::ProtectCodeSegment(VAddr start, VAddr end) {
     //TODO signal handler
+}
+
+bool Instance::Executable(VAddr vaddr) {
+    if (mmu_) {
+        auto pte = mmu_->GetPage(vaddr & mmu_->page_mask_);
+        if (pte) {
+            return true;
+        } else {
+            return false;
+        }
+    } else {
+        return vaddr > PAGE_SIZE;
+    }
 }

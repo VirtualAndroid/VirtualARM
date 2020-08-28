@@ -21,6 +21,9 @@ void *TestCase1() {
     __ Bind(&true_label);
     __ Stp(x30, x30, MemOperand(sp, -16, PreIndex));
     __ Svc(0);
+    __ Brk(0);
+    __ Svc(0);
+    __ Svc(0);
     __ Ldp(x30, x2, MemOperand(sp, 16, PostIndex));
     __ Sub(x0, x0, 1);
     __ Cbnz(x0, &true_label);
@@ -28,11 +31,15 @@ void *TestCase1() {
     __ Nop();
     __ Nop();
     __ Nop();
-    __ Bl(&loop);
+    __ Br(x8);
     __ Ret();
 
     __ FinalizeCode();
     return __ GetBuffer()->GetStartAddress<void*>();
+}
+
+void Test1() {
+    LOGE("Caonima");
 }
 
 bool debug = true;
@@ -52,6 +59,11 @@ public:
         }
         cpu_context_.pc += 4;
     }
+
+    void Fallback() override {
+        LOGE("Fallback");
+        abort();
+    }
 };
 
 extern "C"
@@ -62,13 +74,13 @@ load_test(JNIEnv *env, jobject instance) {
     auto context = SharedPtr<MyEmuThread>(new MyEmuThread(svm));
     context->RegisterCurrent();
     context->GetCpuContext()->cpu_registers[0].X = 50;
+    u64 target = 0b11111111111111111111111111111111111111111;
+    context->GetCpuContext()->cpu_registers[8].X = target;
     context->GetCpuContext()->pc = reinterpret_cast<u64>(TestCase1());
     context->GetCpuContext()->sp = reinterpret_cast<u64>(malloc(256 * 1024)) + 256 * 1024;
     assert(context->GetCpuContext()->ticks_now == 0);
     assert(context->GetCpuContext()->ticks_max == 0);
-//    while (debug) {
-//        sleep(1);
-//    }
+    svm->GetCodeFindTable()->FillCodeAddress(target, 0x100);
     context->Run(500);
     LOGE("RunTicks %llu", context->GetCpuContext()->ticks_now);
 }

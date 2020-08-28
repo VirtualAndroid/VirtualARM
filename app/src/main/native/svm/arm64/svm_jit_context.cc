@@ -604,6 +604,10 @@ void JitContext::ABICall(const ABICallHelp::Reason call, const Register &xt) {
     __ Br(tmp);
 }
 
+void JitContext::LookupL1(const Register &rt, const VirtualAddress &va, Label *miss_cache) {
+
+}
+
 RegisterGuard::RegisterGuard(const ContextA64 &context, const std::vector<Register> &targets)
         : context_(context), targets_(std::move(targets)) {
     auto &reg_allocator = context->GetRegisterAlloc();

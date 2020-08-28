@@ -134,6 +134,11 @@ namespace CPU::A64 {
         };
     };
 
+    struct TLBEntry {
+        VAddr page_index;
+        VAddr pte;
+    };
+
     struct CPUContext {
         Reg cpu_registers[29];
         Reg fp; // x29
@@ -171,6 +176,9 @@ namespace CPU::A64 {
         u64 ticks_max;
         // help fields
         VAddr context_ptr;
+        // L1 Data Cache, for sp
+        // exchange when context switch
+        std::array<TLBEntry, 64> l1_dcache;
     };
 }
 
