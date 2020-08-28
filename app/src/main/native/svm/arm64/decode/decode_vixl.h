@@ -18,6 +18,7 @@
   V(LoadStorePairPreIndex)              \
   V(LoadStorePostIndex)                 \
   V(LoadStorePreIndex)                  \
+  V(LoadStoreUnsignedOffset)            \
   V(PCRelAddressing)                    \
   V(System)                             \
   V(TestBranch)                         \

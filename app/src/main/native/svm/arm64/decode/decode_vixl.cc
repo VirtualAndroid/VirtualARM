@@ -212,11 +212,15 @@ void VixlJitDecodeVisitor::VisitLoadStorePairPreIndex(const Instruction *instr) 
 }
 
 void VixlJitDecodeVisitor::VisitLoadStorePostIndex(const Instruction *instr) {
-    VisitUnimplemented(instr);
+    LoadStoreReg<WriteBack | PostIndex>(Context(), instr->GetRt(), instr->GetRn());
 }
 
 void VixlJitDecodeVisitor::VisitLoadStorePreIndex(const Instruction *instr) {
-    VisitUnimplemented(instr);
+    LoadStoreReg<WriteBack>(Context(), instr->GetRt(), instr->GetRn());
+}
+
+void VixlJitDecodeVisitor::VisitLoadStoreUnsignedOffset(const Instruction *instr) {
+    LoadStoreReg(Context(), instr->GetRt(), instr->GetRn());
 }
 
 void VixlJitDecodeVisitor::VisitUnallocated(const Instruction *instr) {

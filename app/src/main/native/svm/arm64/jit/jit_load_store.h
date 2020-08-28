@@ -75,9 +75,25 @@ namespace Jit::A64 {
         reg_alloc.ReleaseTempX(tmp);
     }
 
-    template<typename T, unsigned flags = 0>
+    template<unsigned flags = 0, typename T = u64>
     void LoadStoreReg(ContextA64 context, u8 rt, u8 rn) {
+        RegisterGuard guard(context, {context->GetXRegister(rn, true), context->GetXRegister(rt)});
 
+        auto instr = context->Instr();
+
+        if constexpr (flags & WriteBack) {
+            guard.Dirty(0);
+        }
+
+        // load
+        if (instr.L == 1) {
+            guard.Dirty(1);
+        }
+
+        instr.Rn = guard.Target(0).RealCode();
+        instr.Rt = guard.Target(0).RealCode();
+
+        context->Assembler().Emit(instr.raw);
     }
 
     template<unsigned flags = 0, typename T = u64>

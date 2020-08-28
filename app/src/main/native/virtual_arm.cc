@@ -19,11 +19,13 @@ void *TestCase1() {
     __ Reset();
     __ SetStackPointer(sp);
     __ Bind(&true_label);
+    __ Str(x30, MemOperand(sp, -16, PostIndex));
     __ Stp(x30, x30, MemOperand(sp, -16, PreIndex));
     __ Svc(0);
     __ Brk(0);
     __ Svc(0);
     __ Svc(0);
+    __ Ldr(x30, MemOperand(sp, 16, PreIndex));
     __ Ldp(x30, x2, MemOperand(sp, 16, PostIndex));
     __ Sub(x0, x0, 1);
     __ Cbnz(x0, &true_label);
@@ -31,7 +33,7 @@ void *TestCase1() {
     __ Nop();
     __ Nop();
     __ Nop();
-    __ Br(x8);
+    __ Blr(x8);
     __ Ret();
 
     __ FinalizeCode();
@@ -74,7 +76,7 @@ load_test(JNIEnv *env, jobject instance) {
     auto context = SharedPtr<MyEmuThread>(new MyEmuThread(svm));
     context->RegisterCurrent();
     context->GetCpuContext()->cpu_registers[0].X = 50;
-    u64 target = 0b11111111111111111111111111111111111111111;
+    u64 target = 1573291731371;
     context->GetCpuContext()->cpu_registers[8].X = target;
     context->GetCpuContext()->pc = reinterpret_cast<u64>(TestCase1());
     context->GetCpuContext()->sp = reinterpret_cast<u64>(malloc(256 * 1024)) + 256 * 1024;
