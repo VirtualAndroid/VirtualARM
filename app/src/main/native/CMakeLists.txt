@@ -18,6 +18,7 @@ add_library(virtual_arm SHARED
         base/marcos.cc
         base/hash_table.cc
         base/log.cc
+        base/file.cc
         instruction/instruction.cc
         asm/arm64/instruction_fields.cc
         asm/arm64/instruction_aarch64.cc
@@ -57,6 +58,7 @@ add_library(virtual_arm SHARED
         memory/mmu.cc
         memory/tlb.cc
         platform/memory.cc
+        loader/nro.cc
 )
 
 

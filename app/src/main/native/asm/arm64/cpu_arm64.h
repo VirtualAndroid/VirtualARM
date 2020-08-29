@@ -139,6 +139,9 @@ namespace CPU::A64 {
         VAddr pte;
     };
 
+    constexpr size_t l1_page_bits = 6;
+    constexpr size_t l1_page_count = 1 << l1_page_bits;
+
     struct CPUContext {
         Reg cpu_registers[29];
         Reg fp; // x29
@@ -178,7 +181,7 @@ namespace CPU::A64 {
         VAddr context_ptr;
         // L1 Data Cache, for sp
         // exchange when context switch
-        std::array<TLBEntry, 64> l1_dcache;
+        std::array<TLBEntry, l1_page_count> l1_dcache;
     };
 }
 

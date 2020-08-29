@@ -523,9 +523,11 @@ void JitContext::LookupTLB(const Register &rt, const VirtualAddress &va, Label *
     if (!mmu_) {
         return;
     }
+    register_alloc_.MarkInUsed(rt);
     auto tmp1 = register_alloc_.AcquireTempX();
     auto tmp2 = register_alloc_.AcquireTempX();
     if (!va.ConstAddress()) {
+        register_alloc_.MarkInUsed(va.VARegister());
         __ Mov(tmp1, Operand(va.VARegister(), LSR, page_bits_));
         __ Bfc(tmp1, tlb_bits_, sizeof(VAddr) * 8 - tlb_bits_);
         __ Ldr(tmp2, MemOperand(register_alloc_.ContextPtr(), OFFSET_CTX_A64_TLB));
@@ -535,6 +537,7 @@ void JitContext::LookupTLB(const Register &rt, const VirtualAddress &va, Label *
         __ Sub(tmp1, tmp1, Operand(va.VARegister(), LSR, page_bits_));
         __ Cbnz(tmp1, miss_cache);
         __ Ldr(rt, MemOperand(tmp2, 8));
+        register_alloc_.MarkInUsed(va.VARegister(), false);
         // miss cache
     } else {
         __ Ldr(tmp1, MemOperand(register_alloc_.ContextPtr(), OFFSET_CTX_A64_TLB));
@@ -549,6 +552,7 @@ void JitContext::LookupTLB(const Register &rt, const VirtualAddress &va, Label *
     }
     register_alloc_.ReleaseTempX(tmp1);
     register_alloc_.ReleaseTempX(tmp2);
+    register_alloc_.MarkInUsed(rt, false);
 }
 
 const Register &JitContext::LoadContextPtr() {
@@ -604,8 +608,24 @@ void JitContext::ABICall(const ABICallHelp::Reason call, const Register &xt) {
     __ Br(tmp);
 }
 
-void JitContext::LookupL1(const Register &rt, const VirtualAddress &va, Label *miss_cache) {
+void JitContext::LookupL1(const Register &rt, const VirtualAddress &va, const Register &tmp, Label *miss_cache) {
+    if (!va.ConstAddress()) {
+        register_alloc_.MarkInUsed(va.VARegister());
 
+        __ Lsr(tmp, va.VARegister(), mmu_->page_bits_);
+        __ Bfc(tmp,l1_page_bits, sizeof(VAddr) * 8 - l1_page_bits);
+
+        __ Add(tmp, register_alloc_.ContextPtr(), Operand(tmp, LSL, 4));
+        __ Ldr(rt, MemOperand(tmp, OFFSET_OF(CPUContext, l1_dcache)));
+        __ Sub(rt, rt, Operand(va.VARegister(), LSR, page_bits_));
+        __ Cbnz(rt, miss_cache);
+        __ Ldr(rt, MemOperand(tmp, 8));
+
+        register_alloc_.MarkInUsed(va.VARegister(), false);
+    } else {
+        // TODO
+        abort();
+    }
 }
 
 RegisterGuard::RegisterGuard(const ContextA64 &context, const std::vector<Register> &targets)
