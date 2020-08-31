@@ -53,9 +53,6 @@ const SharedPtr<Instance> &ThreadContext::GetInstance() const {
     return instance_;
 }
 
-ThreadContext::~ThreadContext() {
-}
-
 EmuThreadContext::EmuThreadContext(const SharedPtr<Instance> &instance) : ThreadContext(instance) {
     interrupt_stack_.resize(4 * 1024 * 1024);
     cpu_context_.context_ptr = reinterpret_cast<VAddr>(this);

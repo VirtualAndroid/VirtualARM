@@ -31,8 +31,6 @@ namespace SVM::A64 {
     public:
         ThreadContext(const SharedPtr<Instance> &instance);
 
-        virtual ~ThreadContext();
-
         const static SharedPtr<ThreadContext> &Current();
 
         const SharedPtr<Instance> &GetInstance() const;

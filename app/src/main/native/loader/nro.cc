@@ -17,7 +17,7 @@ Nro::Nro(std::string path) {
 
     text_.resize(header_.text.size);
     rodata_.resize(header_.ro.size);
-    data_.resize(header_.data.size);
+    data_.resize(header_.data.size + header_.bssSize);
 
     file_->Read(text_.data(), header_.text.offset, header_.text.size);
     file_->Read(rodata_.data(), header_.ro.offset, header_.ro.size);
@@ -37,7 +37,7 @@ bool Nro::Load(CodeSet *code_set) {
 
     code_set->DataSegment().addr = code_set->base_addr + text_.size() + rodata_.size();
     code_set->DataSegment().offset = text_.size() + rodata_.size();
-    code_set->DataSegment().size = rodata_.size();
+    code_set->DataSegment().size = data_.size();
     std::memcpy(reinterpret_cast<void *>(code_set->DataSegment().addr), data_.data(), data_.size());
 
     code_set->entrypoint = code_set->base_addr;

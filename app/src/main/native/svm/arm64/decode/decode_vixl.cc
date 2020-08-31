@@ -40,7 +40,7 @@ void VixlJitDecodeVisitor::VisitCompareBranch(const Instruction *instr) {
 }
 
 void VixlJitDecodeVisitor::VisitConditionalBranch(const Instruction *instr) {
-    BranchImm(Context(), (u64) instr->GetImmPCOffsetTarget(), 0, instr->GetCondition());
+    BranchImm(Context(), (u64) instr->GetImmPCOffsetTarget(), 0, instr->GetConditionBranch());
 }
 
 void VixlJitDecodeVisitor::VisitTestBranch(const Instruction *instr) {

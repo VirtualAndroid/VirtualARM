@@ -115,9 +115,11 @@ void RunTestNro() {
     auto context = SharedPtr<MyEmuThread>(new MyEmuThread(svm));
     context->RegisterCurrent();
     context->GetCpuContext()->pc = reinterpret_cast<u64>(code_set->entrypoint);
+    context->GetCpuContext()->tpidrro = reinterpret_cast<u64>(malloc(512));
     context->GetCpuContext()->sp = reinterpret_cast<u64>(malloc(256 * 1024)) + 256 * 1024;
-    context->GetCpuContext()->cpu_registers[0].X = 1;
-    context->Run(0x1000);
+    context->GetCpuContext()->cpu_registers[0].X = 0;
+    context->GetCpuContext()->cpu_registers[1].X = 1;
+    context->Run(0x4000000);
 }
 
 extern "C"
