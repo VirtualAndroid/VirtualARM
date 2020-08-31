@@ -5,9 +5,13 @@
 #include <sys/mman.h>
 #include "memory.h"
 
-void *Platform::MapExecutableMemory(size_t size) {
-    return mmap(0, size, PROT_READ | PROT_WRITE | PROT_EXEC,
-                MAP_PRIVATE | MAP_ANONYMOUS,
+void *Platform::MapExecutableMemory(size_t size, VAddr addr) {
+    int flags = MAP_PRIVATE | MAP_ANONYMOUS;
+    if (addr != 0) {
+        flags |= MAP_FIXED;
+    }
+    return mmap(reinterpret_cast<void *>(addr), size, PROT_READ | PROT_WRITE | PROT_EXEC,
+                flags,
                 -1, 0);
 }
 

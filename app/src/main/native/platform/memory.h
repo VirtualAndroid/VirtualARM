@@ -7,6 +7,6 @@
 #include "base/marcos.h"
 
 namespace Platform {
-    void *MapExecutableMemory(size_t size);
+    void *MapExecutableMemory(size_t size, VAddr addr = 0);
     void UnMapExecutableMemory(VAddr addr, size_t size);
 }

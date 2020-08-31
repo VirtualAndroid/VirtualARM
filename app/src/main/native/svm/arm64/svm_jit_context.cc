@@ -334,8 +334,10 @@ void JitContext::Forward(const Register &target) {
     Push(reg_forward_);
     if (register_alloc_.InUsed(target)) {
         __ Ldr(reg_forward_, MemOperand(register_alloc_.ContextPtr(), target.RealCode() * 8));
+        __ Str(reg_forward_, MemOperand(MemOperand(register_alloc_.ContextPtr(), OFFSET_CTX_A64_PC)));
+    } else {
+        __ Str(target, MemOperand(MemOperand(register_alloc_.ContextPtr(), OFFSET_CTX_A64_PC)));
     }
-    __ Str(target, MemOperand(MemOperand(register_alloc_.ContextPtr(), OFFSET_CTX_A64_PC)));
     CheckTicks();
     LoadGlobalStub(reg_forward_, GlobalStubs::ForwardCodeCacheOffset());
     __ Br(reg_forward_);
@@ -420,6 +422,7 @@ void JitContext::EndBlock() {
 
     std::memcpy(reinterpret_cast<void *>(buffer_start), __ GetBuffer()->GetStartAddress<void *>(),
                 jit_block_size);
+    __sync_synchronize();
     ClearCachePlatform(buffer_start, jit_block_size);
 
     entry_data.ready = true;
@@ -626,6 +629,10 @@ void JitContext::LookupL1(const Register &rt, const VirtualAddress &va, const Re
         // TODO
         abort();
     }
+}
+
+JitContext::~JitContext() {
+    assert(terminal);
 }
 
 RegisterGuard::RegisterGuard(const ContextA64 &context, const std::vector<Register> &targets)

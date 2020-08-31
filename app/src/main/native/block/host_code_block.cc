@@ -6,6 +6,7 @@
 #include "host_code_block.h"
 #include "platform/memory.h"
 #include <aarch64/macro-assembler-aarch64.h>
+#include <base/log.h>
 
 using namespace vixl::aarch64;
 using namespace Jit;
@@ -96,17 +97,18 @@ A64::CodeBlock::~CodeBlock() {
 }
 
 void A64::CodeBlock::GenDispatcher(Buffer *buffer) {
+    LockGuard guard(lock_);
+    if (buffer->id_ >= buffer_count_) {
+        LOGE("ID overflow: id: %d， max: %d", buffer->id_, buffer_count_);
+    }
     assert(buffer->id_ < buffer_count_);
     auto &dispatcher = dispatchers_[buffer->id_].go_forward_;
     auto delta = GetBufferStart(buffer) - reinterpret_cast<VAddr>(&dispatcher);
-    bool need_flush = dispatcher != 0;
 
     // B offset
     dispatcher = 0x14000000 | (0x03ffffff & (static_cast<u32>(delta) >> 2));
 
-    if (need_flush) {
-        ClearCachePlatform(reinterpret_cast<VAddr>(&dispatcher), 4);
-    }
+    ClearCachePlatform(reinterpret_cast<VAddr>(&dispatcher), 4);
 }
 
 VAddr A64::CodeBlock::GetDispatcherAddr(Buffer *buffer) {
@@ -119,7 +121,6 @@ VAddr A64::CodeBlock::GetDispatcherOffset(Buffer *buffer) {
 
 void A64::CodeBlock::FlushCodeBuffer(Buffer *buffer, u32 size) {
     BaseBlock::FlushCodeBuffer(buffer, size);
-    GenDispatcher(buffer);
 }
 
 VAddr A64::CodeBlock::ModuleMapAddressAddress() {
@@ -147,6 +148,10 @@ void A64::CodeBlock::GenDispatcherStub(u8 forward_reg, VAddr dispatcher_trampoli
 
     std::memcpy(reinterpret_cast<void *>(GetBufferStart(buffer)),
                 __ GetBuffer()->GetStartAddress<void *>(), stub_size);
+
+    GenDispatcher(buffer);
+
+    ClearCachePlatform(GetBufferStart(buffer), stub_size);
 }
 
 Buffer *A64::CodeBlock::AllocCodeBuffer(VAddr source) {
@@ -154,13 +159,10 @@ Buffer *A64::CodeBlock::AllocCodeBuffer(VAddr source) {
     if (buffer->id_ != 0) {
         auto &dispatcher = dispatchers_[buffer->id_].go_forward_;
         auto delta = GetBufferStart(GetBuffer(0)) - reinterpret_cast<VAddr>(&dispatcher);
-        bool need_flush = dispatcher != 0;
         // B offset
         dispatcher = 0x14000000 | (0x03ffffff & (static_cast<u32>(delta) >> 2));
 
-        if (need_flush) {
-            ClearCachePlatform(reinterpret_cast<VAddr>(&dispatcher), 4);
-        }
+        ClearCachePlatform(reinterpret_cast<VAddr>(&dispatcher), 4);
     }
     return buffer;
 }

@@ -60,6 +60,7 @@ namespace Jit {
         std::string module_path;
         std::array<Segment, 3> segments;
         VAddr entrypoint = 0;
+        VAddr base_addr = 0;
     };
 
 }

@@ -5,13 +5,30 @@
 #include <jni.h>
 #include <dlfcn.h>
 #include <base/log.h>
+#include <platform/memory.h>
 #include "virtual_arm.h"
 
 #include "svm/arm64/svm_arm64.h"
 #include "svm/arm64/svm_thread.h"
+#include "loader/nro.h"
 
 #define __ masm_.
 static MacroAssembler masm_;
+
+void PlatformSignalHandler(int signum, siginfo_t *siginfo, ucontext_t *uc) {
+    if (signum != SIGILL) {
+        abort();
+    }
+    sigcontext *context = &uc->uc_mcontext;
+    u32 code = *reinterpret_cast<u32 *>(context->pc);
+    for (int i = -8; i < 9; ++i) {
+        std::ostringstream string;
+        PrintDisassembler disassembler(string);
+        disassembler.Disassemble(reinterpret_cast<const Instruction *>(context->pc + (i * 4)));
+        LOGE((i == 0) ?  "Error Instr: %s" : "Instr: %s" , disassembler.GetOutput());
+    }
+    abort();
+}
 
 void *TestCase1() {
     Label true_label;
@@ -48,16 +65,11 @@ bool debug = true;
 
 class MyEmuThread : public EmuThreadContext {
 public:
-    MyEmuThread(const SharedPtr<Instance> &instance) : EmuThreadContext(instance) {
-
-    }
-
-    std::atomic_int i = 0;
+    MyEmuThread(const SharedPtr<Instance> &instance) : EmuThreadContext(instance) {}
 
     void Interrupt(InterruptHelp &interrupt) override {
-        LOGE("Interrupt: %d", i++);
-        if (cpu_context_.cpu_registers[0].X == 1) {
-            LOGE("Interrupt");
+        if (interrupt.reason == CPU::A64::InterruptHelp::Svc) {
+            LOGE("Svc: %d", interrupt.exception);
         }
         cpu_context_.pc += 4;
     }
@@ -68,9 +80,7 @@ public:
     }
 };
 
-extern "C"
-JNIEXPORT void JNICALL
-load_test(JNIEnv *env, jobject instance) {
+void RunDemo() {
     auto svm = SharedPtr<Instance>(new Instance());
     svm->Initialize();
     auto context = SharedPtr<MyEmuThread>(new MyEmuThread(svm));
@@ -85,6 +95,35 @@ load_test(JNIEnv *env, jobject instance) {
     svm->GetCodeFindTable()->FillCodeAddress(target, 0x100);
     context->Run(500);
     LOGE("RunTicks %llu", context->GetCpuContext()->ticks_now);
+}
+
+void RunTestNro() {
+    struct sigaction sig{};
+    sigemptyset(&sig.sa_mask);
+    sig.sa_flags = SA_SIGINFO | SA_ONSTACK;
+    sig.sa_sigaction = reinterpret_cast<void (*)(int, siginfo_t *, void *)>(PlatformSignalHandler);
+    if (sigaction(SIGILL, &sig, nullptr) == -1) {
+    }
+    Loader::Nro nro("/sdcard/barrier.nro");
+    auto code_set = std::make_shared<Jit::CodeSet>();
+    code_set->base_addr = 0x120000000;
+    Platform::MapExecutableMemory(nro.GetLoadSegmentsSize(), code_set->base_addr);
+    nro.Load(code_set.get());
+    auto svm = SharedPtr<Instance>(new Instance());
+    svm->Initialize();
+    svm->RegisterCodeSet(code_set);
+    auto context = SharedPtr<MyEmuThread>(new MyEmuThread(svm));
+    context->RegisterCurrent();
+    context->GetCpuContext()->pc = reinterpret_cast<u64>(code_set->entrypoint);
+    context->GetCpuContext()->sp = reinterpret_cast<u64>(malloc(256 * 1024)) + 256 * 1024;
+    context->GetCpuContext()->cpu_registers[0].X = 1;
+    context->Run(0x1000);
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+load_test(JNIEnv *env, jobject instance) {
+    RunTestNro();
 }
 
 static bool registerNativeMethods(JNIEnv *env, const char *className, JNINativeMethod *jniMethods, int methods) {

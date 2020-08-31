@@ -124,6 +124,8 @@ namespace Jit::A64 {
     public:
         JitContext(SVM::A64::Instance &instance);
 
+        virtual ~JitContext();
+
         const Register &LoadContextPtr();
 
         void ClearContextPtr(const Register &context);

@@ -80,10 +80,11 @@ namespace Jit {
 
         template <typename ...Args>
         Entry *Emplace(size_t addr, Args... args) {
-            auto entry = TryGet(addr);
-            if (entry) {
-                return entry;
-            }
+            //TODO thread safe
+//            auto entry = TryGet(addr);
+//            if (entry) {
+//                return entry;
+//            }
             std::unique_lock guard(lock_);
             auto holding = TryGetUnsafe(addr);
             if (holding) {

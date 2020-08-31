@@ -77,7 +77,8 @@ void Instance::RegisterCodeSet(const std::shared_ptr<Jit::CodeSet> &code_set) {
     auto code_start = code_set->CodeSegment().addr;
     auto code_end = code_set->CodeSegment().addr + code_set->CodeSegment().size;
     code_sets_.push_back(code_set);
-    auto code_block = AllocCacheBlock((code_end - code_start) >> 2);
+    auto alloc_size = AlignUp(reinterpret_cast<VAddr>((code_end - code_start) >> 4), 0x1000);
+    auto code_block = AllocCacheBlock(std::max(alloc_size + 0x4000, (u64)BLOCK_SIZE_A64));
     cache_blocks_set_[code_set.get()] = code_block;
     const IntervalType interval{code_start, code_end};
     cache_blocks_addresses_.insert({interval, code_block});

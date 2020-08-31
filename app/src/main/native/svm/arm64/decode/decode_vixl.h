@@ -58,13 +58,13 @@ namespace Decode::A64 {
 
         void PopContext();
 
-    private:
-
         constexpr Jit::A64::ContextA64 Context() {
-            return jit_contexts_.top();
+          return jit_contexts_.top();
         }
 
-        std::stack<Jit::A64::ContextA64> jit_contexts_;
+    private:
+
+        std::stack<Jit::A64::ContextA64> jit_contexts_{};
     };
 
 }

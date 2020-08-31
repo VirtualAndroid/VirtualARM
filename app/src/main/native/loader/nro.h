@@ -5,8 +5,12 @@
 #pragma once
 
 #include <base/marcos.h>
+#include <base/file.h>
+#include "block/code_set.h"
 
 namespace Loader {
+
+    using namespace Jit;
 
     template<typename Type>
     constexpr Type MakeMagic(std::string_view string) {
@@ -51,7 +55,7 @@ namespace Loader {
         NroSegmentHeader apiInfo; //!< The .apiInfo segment header
         NroSegmentHeader dynstr; //!< The .dynstr segment header
         NroSegmentHeader dynsym; //!< The .dynsym segment header
-    } header{};
+    };
 
     /**
      * @brief This holds a single asset section's offset and size
@@ -70,18 +74,21 @@ namespace Loader {
         NroAssetSection icon; //!< The header describing the location of the icon
         NroAssetSection nacp; //!< The header describing the location of the NACP
         NroAssetSection romFs; //!< The header describing the location of the RomFS
-    } assetHeader{};
+    };
 
     class Nro {
     public:
         Nro(std::string path);
-
-        void* Load();
+        bool Load(CodeSet *code_set);
+        size_t GetLoadSegmentsSize();
     private:
         std::vector<u8> GetSegment(const NroSegmentHeader &segment);
-        NroHeader header;
+        NroHeader header_;
 
-        FILE *file;
+        SharedPtr<FileSys::File> file_;
+        std::vector<u8> text_;
+        std::vector<u8> rodata_;
+        std::vector<u8> data_;
     };
 
 }

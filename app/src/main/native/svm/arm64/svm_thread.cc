@@ -30,23 +30,22 @@ void ThreadContext::RegisterCurrent() {
 }
 
 const ContextA64 ThreadContext::GetJitContext() const {
-    return jit_contexts_.top();
+    return jit_visitor_->Context();
 }
 
 bool ThreadContext::JitInstr(VAddr addr) {
-    jit_contexts_.top()->SetPC(addr);
+    auto context = jit_visitor_->Context();
+    context->SetPC(addr);
     jit_decode_->Decode(reinterpret_cast<Instruction*>(addr));
-    return !jit_contexts_.top()->Termed();
+    return !context->Termed();
 }
 
 
 void ThreadContext::PushJitContext(ContextA64 context) {
-    jit_contexts_.push(context);
     jit_visitor_->PushContext(context);
 }
 
 void ThreadContext::PopJitContext() {
-    jit_contexts_.pop();
     jit_visitor_->PopContext();
 }
 
@@ -54,9 +53,11 @@ const SharedPtr<Instance> &ThreadContext::GetInstance() const {
     return instance_;
 }
 
+ThreadContext::~ThreadContext() {
+}
+
 EmuThreadContext::EmuThreadContext(const SharedPtr<Instance> &instance) : ThreadContext(instance) {
-    // 512KB
-    interrupt_stack_.resize(512 * 1024);
+    interrupt_stack_.resize(4 * 1024 * 1024);
     cpu_context_.context_ptr = reinterpret_cast<VAddr>(this);
     cpu_context_.host_stubs = reinterpret_cast<VAddr>(instance->GetGlobalStubs().get());
     cpu_context_.dispatcher_table = instance->GetCodeFindTable()->TableEntryPtr();

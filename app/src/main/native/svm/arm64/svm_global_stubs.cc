@@ -129,8 +129,12 @@ void GlobalStubs::BuildForwardCodeCache() {
     __ Ldp(tmp1, tmp2, MemOperand(context_reg_, tmp1.RealCode() * 8));
     __ Ldr(forward_reg_, MemOperand(context_reg_, forward_reg_.RealCode() * 8));
     ABISaveGuestContext(masm_, tmp1);
-    __ Mov(forward_reg_, (VAddr) JitCacheMissStub);
+    // prepare interrupt sp
+    __ Ldr(forward_reg_, MemOperand(context_reg_, OFFSET_CTX_A64_INTERRUPT_SP));
+    __ Mov(sp, forward_reg_);
+    // go stub
     __ Mov(x0, context_reg_);
+    __ Mov(forward_reg_, (VAddr) JitCacheMissStub);
     __ Blr(forward_reg_);
     __ Mov(context_reg_, x0);
     ABIRestoreGuestContext(masm_, const_cast<Register &>(forward_reg_));
@@ -165,7 +169,7 @@ void GlobalStubs::FullSaveGuestContext(MacroAssembler &masm_, Register &tmp) {
         }
     }
     // save lr
-    if (context_reg_ == lr) {
+    if (context_reg_ != lr) {
         __ Str(x30, MemOperand(context_reg_, OFFSET_CTX_A64_LR));
     }
     // sysregs

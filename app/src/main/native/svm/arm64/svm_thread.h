@@ -31,6 +31,8 @@ namespace SVM::A64 {
     public:
         ThreadContext(const SharedPtr<Instance> &instance);
 
+        virtual ~ThreadContext();
+
         const static SharedPtr<ThreadContext> &Current();
 
         const SharedPtr<Instance> &GetInstance() const;
@@ -54,7 +56,6 @@ namespace SVM::A64 {
         SharedPtr<Instance> instance_;
         std::shared_ptr<Decode::A64::VixlJitDecodeVisitor> jit_visitor_;
         std::shared_ptr<vixl::aarch64::Decoder> jit_decode_;
-        std::stack<Jit::A64::ContextA64> jit_contexts_;
     };
 
     class EmuThreadContext : public ThreadContext {

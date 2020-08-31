@@ -53,7 +53,6 @@ void JitManager::JitFromQueue() {
 }
 
 void JitManager::JitUnsafe(JitCacheEntry *entry) {
-    LOGE("JitUnsafe: %llu", entry->addr_start);
     const auto &thread_context = ThreadContext::Current();
     auto pc = entry->addr_start;
     // peek code block
@@ -63,14 +62,12 @@ void JitManager::JitUnsafe(JitCacheEntry *entry) {
     auto buffer = code_block->GetBuffer(entry->Data().id_in_block);
     JitContext jit_context(*instance_);
     jit_context.SetCacheEntry(entry);
-    jit_context.BeginBlock(entry->addr_start);
     thread_context->PushJitContext(&jit_context);
-
+    jit_context.BeginBlock(entry->addr_start);
     while (thread_context->JitInstr(pc)) {
         pc += 4;
         jit_context.Tick();
     }
-
     thread_context->PopJitContext();
     entry->addr_end = pc + 4;
     auto cache_size = jit_context.BlockCacheSize();
@@ -78,6 +75,7 @@ void JitManager::JitUnsafe(JitCacheEntry *entry) {
     jit_context.EndBlock();
     entry->Data().ready = true;
     jit_cache_->Flush(entry);
+    code_block->GenDispatcher(buffer);
 }
 
 JitCacheEntry *JitManager::EmplaceJit(VAddr addr) {
